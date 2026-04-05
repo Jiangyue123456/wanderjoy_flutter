@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "1098467181300",
+    "project_id": "wanderjoy-69923",
+    "storage_bucket": "wanderjoy-69923.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1098467181300:android:a7613119b52c03a1e5d4a1",
+        "android_client_info": {
+          "package_name": "com.example.wanderjoy_flutter"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1098467181300-ivtdstmq3b32mdp0mhdi1oev9p51hkja.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.wanderjoy_flutter",
+            "certificate_hash": "32ec00a4c128d0d67a94def0bb81a422a06b72d7"
+          }
+        },
+        {
+          "client_id": "1098467181300-hh410eo4hm6dmu1tv4q7am65l24pstd4.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDRHqZazsxY6FtoXl9hfMJWfyxz9Ydtjrc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1098467181300-hh410eo4hm6dmu1tv4q7am65l24pstd4.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
