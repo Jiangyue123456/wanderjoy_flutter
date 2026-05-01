@@ -14,11 +14,11 @@
       },
       "oauth_client": [
         {
-          "client_id": "1098467181300-ivtdstmq3b32mdp0mhdi1oev9p51hkja.apps.googleusercontent.com",
+          "client_id": "1098467181300-3n3oqj86q6obmvbo5avh0tu36vvreidn.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.example.wanderjoy_flutter",
-            "certificate_hash": "32ec00a4c128d0d67a94def0bb81a422a06b72d7"
+            "certificate_hash": "57ce93678e507edaa1d44079aa28f7a5c36752b7"
           }
         },
         {

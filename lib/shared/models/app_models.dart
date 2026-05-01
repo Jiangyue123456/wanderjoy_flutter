@@ -1,8 +1,8 @@
-enum PoiCategory { nature, culture, food, arts }
+enum PoiCategory { nature, culture, food, arts, other }
 
 enum EnergyLevel { low, medium, high }
 
-enum RouteMode { relaxed, custom, hard }
+enum RouteMode { relaxed, medium, active }
 
 enum TripType { explore, social }
 
@@ -11,9 +11,12 @@ class UserProfile {
     required this.id,
     required this.name,
     required this.avatar,
+    required this.age,
     required this.interests,
     required this.energyLevel,
     required this.travelStyle,
+    required this.bio,
+    required this.distanceKm,
     required this.safetyRating,
     this.paceMatch,
   });
@@ -21,9 +24,12 @@ class UserProfile {
   final String id;
   final String name;
   final String avatar;
+  final int age;
   final List<PoiCategory> interests;
   final EnergyLevel energyLevel;
   final String travelStyle;
+  final String bio;
+  final double distanceKm;
   final double safetyRating;
   final int? paceMatch;
 }
@@ -34,6 +40,8 @@ class Poi {
     required this.name,
     required this.category,
     required this.description,
+    required this.rating,
+    required this.reason,
     required this.lat,
     required this.lng,
     required this.emoji,
@@ -44,6 +52,8 @@ class Poi {
   final String name;
   final PoiCategory category;
   final String description;
+  final double rating;
+  final String reason;
   final double lat;
   final double lng;
   final String emoji;
@@ -80,22 +90,23 @@ extension PoiCategoryX on PoiCategory {
     PoiCategory.culture => 'Culture',
     PoiCategory.food => 'Food',
     PoiCategory.arts => 'Arts',
+    PoiCategory.other => 'Other',
   };
 }
 
 extension EnergyLevelX on EnergyLevel {
   String get label => switch (this) {
-    EnergyLevel.low => 'Low',
+    EnergyLevel.low => 'Relaxed',
     EnergyLevel.medium => 'Medium',
-    EnergyLevel.high => 'High',
+    EnergyLevel.high => 'Active',
   };
 }
 
 extension RouteModeX on RouteMode {
   String get label => switch (this) {
     RouteMode.relaxed => 'Relaxed',
-    RouteMode.custom => 'Custom',
-    RouteMode.hard => 'Hard',
+    RouteMode.medium => 'Medium',
+    RouteMode.active => 'Active',
   };
 }
 

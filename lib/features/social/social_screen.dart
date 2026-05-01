@@ -60,12 +60,12 @@ class _SocialScreenState extends State<SocialScreen> {
       ),
       children: [
         Text(
-          'Nearby Explorers',
+          'AI Match Nearby Explorers',
           style: Theme.of(context).textTheme.displayMedium,
         ),
         const SizedBox(height: AppSpacing.sm),
         Text(
-          'Find someone with a similar pace to wander with.',
+          'Recommended from bio, interests, travel intensity, and safety signals.',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const SizedBox(height: AppSpacing.xl),
@@ -99,7 +99,7 @@ class _SocialScreenState extends State<SocialScreen> {
                               ),
                             ),
                             Text(
-                              '0.4 km away',
+                              '${user.distanceKm.toStringAsFixed(1)} km',
                               style: Theme.of(context).textTheme.labelSmall
                                   ?.copyWith(color: AppColors.primary),
                             ),
@@ -107,7 +107,7 @@ class _SocialScreenState extends State<SocialScreen> {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          '${user.travelStyle} • Similar Pace',
+                          '${user.travelStyle} - ${user.paceMatch}% match',
                           style: Theme.of(context).textTheme.bodyMedium,
                         ),
                         const SizedBox(height: 10),
@@ -191,7 +191,7 @@ class _SocialScreenState extends State<SocialScreen> {
         const SizedBox(height: 6),
         Center(
           child: Text(
-            user.travelStyle,
+            '${user.age} - ${user.travelStyle}',
             style: Theme.of(context).textTheme.bodyMedium,
           ),
         ),
@@ -207,11 +207,33 @@ class _SocialScreenState extends State<SocialScreen> {
             const SizedBox(width: 12),
             Expanded(
               child: _ProfileCard(
-                label: 'Pace Match',
+                label: 'Match Score',
                 value: '${user.paceMatch}%',
               ),
             ),
           ],
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        DopamineCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Bio', style: Theme.of(context).textTheme.labelSmall),
+              const SizedBox(height: 8),
+              Text(user.bio, style: Theme.of(context).textTheme.bodyMedium),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  const Icon(Icons.verified_user_outlined, color: AppColors.success),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Safety rating ${user.safetyRating.toStringAsFixed(1)}',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
         const SizedBox(height: AppSpacing.lg),
         const _MiniLabel('Interests'),
@@ -250,6 +272,7 @@ class _SocialScreenState extends State<SocialScreen> {
 
   Widget _request(BuildContext context) {
     final accepted = _controller.requestStatus == RequestStatus.accepted;
+    final rejected = _controller.requestStatus == RequestStatus.rejected;
     return Center(
       key: const ValueKey('social-request'),
       child: Padding(
@@ -268,14 +291,22 @@ class _SocialScreenState extends State<SocialScreen> {
                   ? AppColors.secondarySoft
                   : AppColors.primarySoft,
               child: Icon(
-                accepted ? Icons.check_rounded : Icons.groups_rounded,
+                rejected
+                    ? Icons.close_rounded
+                    : accepted
+                    ? Icons.check_rounded
+                    : Icons.groups_rounded,
                 size: 60,
                 color: accepted ? AppColors.secondary : AppColors.primary,
               ),
             ),
             const SizedBox(height: AppSpacing.xl),
             Text(
-              accepted ? 'Request Accepted!' : 'Sending Request...',
+              rejected
+                  ? 'Request Rejected'
+                  : accepted
+                  ? 'Request Accepted!'
+                  : 'Sending Request...',
               style: Theme.of(context).textTheme.displaySmall,
               textAlign: TextAlign.center,
             ),
@@ -283,12 +314,19 @@ class _SocialScreenState extends State<SocialScreen> {
             Text(
               accepted
                   ? '${_controller.selectedUser?.name} is excited to explore with you.'
+                  : rejected
+                  ? 'No worries. You can return to nearby matches.'
                   : 'Waiting for ${_controller.selectedUser?.name} to accept your invitation.',
               style: Theme.of(context).textTheme.bodyMedium,
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: AppSpacing.xl),
-            accepted
+            rejected
+                ? PrimaryButton(
+                    label: 'Back to Matches',
+                    onPressed: _controller.endSharedTrip,
+                  )
+                : accepted
                 ? PrimaryButton(
                     label: 'Setup Meeting',
                     onPressed: () => _controller.goTo(SocialStep.setup),
@@ -307,6 +345,13 @@ class _SocialScreenState extends State<SocialScreen> {
                           label: 'Simulate Accept',
                           backgroundColor: AppColors.secondary,
                           onPressed: _controller.acceptRequest,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: _controller.rejectRequest,
+                          child: const Text('Reject'),
                         ),
                       ),
                     ],
@@ -335,26 +380,51 @@ class _SocialScreenState extends State<SocialScreen> {
         const _MiniLabel('Meeting Point'),
         const SizedBox(height: AppSpacing.sm),
         DopamineCard(
-          child: TextFormField(
-            initialValue: _controller.meetingPoint,
-            onChanged: _controller.setMeetingPoint,
-            decoration: const InputDecoration(
-              prefixIcon: Icon(Icons.place_outlined),
-              border: InputBorder.none,
-            ),
+          child: Row(
+            children: [
+              const Icon(Icons.place_outlined, color: AppColors.primary),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  _controller.meetingPoint,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: AppSpacing.lg),
-        const _MiniLabel('Meeting Time'),
+        const _MiniLabel('Shared Available Times'),
         const SizedBox(height: AppSpacing.sm),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: _controller.meetingTimeOptions
+              .map(
+                (time) => ChoiceChip(
+                  label: Text(time),
+                  selected: _controller.meetingTime == time,
+                  onSelected: (_) => _controller.setMeetingTime(time),
+                  selectedColor: AppColors.secondarySoft,
+                  backgroundColor: Colors.white,
+                  side: const BorderSide(color: AppColors.border),
+                ),
+              )
+              .toList(),
+        ),
+        const SizedBox(height: AppSpacing.lg),
         DopamineCard(
-          child: TextFormField(
-            initialValue: _controller.meetingTime,
-            onChanged: _controller.setMeetingTime,
-            decoration: const InputDecoration(
-              prefixIcon: Icon(Icons.schedule_rounded),
-              border: InputBorder.none,
-            ),
+          child: Row(
+            children: [
+              const Icon(Icons.schedule_rounded, color: AppColors.secondary),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Matched time: ${_controller.meetingTime}',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: AppSpacing.lg),

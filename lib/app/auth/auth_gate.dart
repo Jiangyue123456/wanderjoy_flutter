@@ -16,18 +16,24 @@ class AuthGate extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<User?>(
-      stream: AuthService.instance.authStateChanges(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const _AuthLoadingScreen();
-        }
+    return ListenableBuilder(
+      listenable: AuthService.instance.previewModeNotifier,
+      builder: (context, _) {
+        return StreamBuilder<User?>(
+          stream: AuthService.instance.authStateChanges(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting &&
+                !AuthService.instance.isPreviewMode) {
+              return const _AuthLoadingScreen();
+            }
 
-        if (snapshot.hasData) {
-          return const AppShell();
-        }
+            if (snapshot.hasData || AuthService.instance.isPreviewMode) {
+              return const AppShell();
+            }
 
-        return const LoginScreen();
+            return const LoginScreen();
+          },
+        );
       },
     );
   }

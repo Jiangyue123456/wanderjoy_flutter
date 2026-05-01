@@ -16,6 +16,7 @@ class ExploreScreen extends StatefulWidget {
 
 class _ExploreScreenState extends State<ExploreScreen> {
   late final ExploreController _controller;
+  final TextEditingController _chatTextController = TextEditingController();
 
   @override
   void initState() {
@@ -25,8 +26,14 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
   @override
   void dispose() {
+    _chatTextController.dispose();
     _controller.dispose();
     super.dispose();
+  }
+
+  void _sendChat() {
+    _controller.addChatMessage();
+    _chatTextController.clear();
   }
 
   @override
@@ -38,7 +45,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
         child: switch (_controller.step) {
           ExploreStep.home => _home(context),
           ExploreStep.input => _input(context),
-          ExploreStep.customize => _customize(context),
+          ExploreStep.customize => _preview(context),
           ExploreStep.route => _route(context),
           ExploreStep.trip => _trip(context),
           ExploreStep.summary => _summary(context),
@@ -57,22 +64,19 @@ class _ExploreScreenState extends State<ExploreScreen> {
         140,
       ),
       children: [
-        Text(
-          'Ready for a new little adventure?',
-          style: Theme.of(context).textTheme.displayMedium,
-        ),
+        Text('Explore Mode', style: Theme.of(context).textTheme.displayMedium),
         const SizedBox(height: AppSpacing.sm),
         Text(
-          'Explore your city at your own pace today.',
+          'AI recommends places, you confirm the stops, then WanderJoy builds a route.',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const SizedBox(height: AppSpacing.lg),
         ClipRRect(
-          borderRadius: BorderRadius.circular(32),
+          borderRadius: BorderRadius.circular(24),
           child: Stack(
             children: [
               Image.network(
-                'https://picsum.photos/seed/wander/900/500',
+                'https://picsum.photos/seed/wander-route/900/520',
                 height: 220,
                 width: double.infinity,
                 fit: BoxFit.cover,
@@ -85,20 +89,21 @@ class _ExploreScreenState extends State<ExploreScreen> {
                       end: Alignment.bottomCenter,
                       colors: [
                         Colors.transparent,
-                        Colors.black.withValues(alpha: 0.55),
+                        Colors.black.withValues(alpha: 0.58),
                       ],
                     ),
                   ),
                 ),
               ),
               const Positioned(
-                left: 24,
-                bottom: 24,
+                left: 20,
+                right: 20,
+                bottom: 20,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'CURRENT CITY',
+                      'PERSONAL EXPLORATION',
                       style: TextStyle(
                         color: Colors.white70,
                         fontSize: 11,
@@ -107,10 +112,10 @@ class _ExploreScreenState extends State<ExploreScreen> {
                     ),
                     SizedBox(height: 6),
                     Text(
-                      'London, UK',
+                      'AI places -> route -> start',
                       style: TextStyle(
                         color: Colors.white,
-                        fontSize: 28,
+                        fontSize: 26,
                         fontWeight: FontWeight.w900,
                       ),
                     ),
@@ -122,8 +127,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
         ),
         const SizedBox(height: AppSpacing.xl),
         PrimaryButton(
-          label: 'Start Exploring',
-          icon: Icons.navigation_rounded,
+          label: 'Chat With AI',
+          icon: Icons.auto_awesome_rounded,
           onPressed: () => _controller.goTo(ExploreStep.input),
         ),
       ],
@@ -141,43 +146,40 @@ class _ExploreScreenState extends State<ExploreScreen> {
       ),
       children: [
         _FlowHeader(
-          title: 'Customize Your Trip',
+          title: 'AI Chat Input',
           onBack: () => _controller.goTo(ExploreStep.home),
         ),
-        const SizedBox(height: AppSpacing.xl),
-        const _MiniLabel('Select Mode'),
-        const SizedBox(height: AppSpacing.sm),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: RouteMode.values
-              .map(
-                (mode) => _PillChoice(
-                  label: mode.label,
-                  selected: _controller.mode == mode,
-                  color: AppColors.primary,
-                  onTap: () => _controller.setMode(mode),
-                ),
-              )
-              .toList(),
-        ),
         const SizedBox(height: AppSpacing.lg),
-        const _MiniLabel('Energy Level'),
-        const SizedBox(height: AppSpacing.sm),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: EnergyLevel.values
-              .map(
-                (energy) => _PillChoice(
-                  label: energy.label,
-                  selected: _controller.energy == energy,
-                  color: AppColors.secondary,
-                  icon: Icons.bolt_rounded,
-                  onTap: () => _controller.setEnergy(energy),
+        DopamineCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final message in _controller.chatMessages)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Text(
+                    message,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: message.startsWith('AI:')
+                          ? AppColors.ink
+                          : AppColors.primary,
+                    ),
+                  ),
                 ),
-              )
-              .toList(),
+              TextField(
+                controller: _chatTextController,
+                onChanged: _controller.setChatInput,
+                onSubmitted: (_) => _sendChat(),
+                decoration: InputDecoration(
+                  hintText: 'Interests, mood, time, special preferences...',
+                  suffixIcon: IconButton(
+                    onPressed: _sendChat,
+                    icon: const Icon(Icons.send_rounded),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
         const SizedBox(height: AppSpacing.lg),
         const _MiniLabel('Interests'),
@@ -198,19 +200,56 @@ class _ExploreScreenState extends State<ExploreScreen> {
               )
               .toList(),
         ),
+        const SizedBox(height: AppSpacing.lg),
+        const _MiniLabel('Travel Intensity'),
+        const SizedBox(height: AppSpacing.sm),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: RouteMode.values
+              .map(
+                (mode) => _PillChoice(
+                  label: mode.label,
+                  selected: _controller.mode == mode,
+                  color: AppColors.primary,
+                  icon: Icons.directions_walk_rounded,
+                  onTap: () => _controller.setMode(mode),
+                ),
+              )
+              .toList(),
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        Row(
+          children: [
+            Expanded(
+              child: _ContextChip(
+                icon: Icons.psychology_alt_outlined,
+                label: _controller.moodNote,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _ContextChip(
+                icon: Icons.schedule_rounded,
+                label: _controller.timeAvailable,
+              ),
+            ),
+          ],
+        ),
         const SizedBox(height: AppSpacing.xl),
         PrimaryButton(
-          label: 'Generate Route',
+          label: 'Recommend Places',
+          icon: Icons.travel_explore_rounded,
           onPressed: _controller.generateInitialRoute,
         ),
       ],
     );
   }
 
-  Widget _customize(BuildContext context) {
+  Widget _preview(BuildContext context) {
     final results = _controller.filteredSearchResults;
     return ListView(
-      key: const ValueKey('explore-customize'),
+      key: const ValueKey('explore-preview'),
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.lg,
         AppSpacing.md,
@@ -219,19 +258,19 @@ class _ExploreScreenState extends State<ExploreScreen> {
       ),
       children: [
         _FlowHeader(
-          title: 'Edit Your Route',
+          title: 'Preview Places',
           onBack: () => _controller.goTo(ExploreStep.input),
         ),
         const SizedBox(height: AppSpacing.lg),
         TextField(
           onChanged: _controller.setSearchQuery,
           decoration: InputDecoration(
-            hintText: 'Search for more places...',
+            hintText: 'Search and manually add a place...',
             prefixIcon: const Icon(Icons.search_rounded),
             filled: true,
             fillColor: Colors.white,
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(24),
+              borderRadius: BorderRadius.circular(20),
               borderSide: BorderSide.none,
             ),
           ),
@@ -245,7 +284,16 @@ class _ExploreScreenState extends State<ExploreScreen> {
           ),
         ],
         const SizedBox(height: AppSpacing.lg),
-        const _MiniLabel('Current Stops'),
+        Row(
+          children: [
+            const Expanded(child: _MiniLabel('Recommended POIs')),
+            TextButton.icon(
+              onPressed: _controller.generateInitialRoute,
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              label: const Text('Adjust'),
+            ),
+          ],
+        ),
         const SizedBox(height: AppSpacing.sm),
         ..._controller.selectedPois.asMap().entries.map(
           (entry) => _PoiRow(
@@ -263,8 +311,10 @@ class _ExploreScreenState extends State<ExploreScreen> {
         ),
         const SizedBox(height: AppSpacing.lg),
         PrimaryButton(
-          label: 'Confirm Route',
-          onPressed: () => _controller.goTo(ExploreStep.route),
+          label: 'Confirm Places',
+          onPressed: _controller.selectedPois.isEmpty
+              ? null
+              : () => _controller.goTo(ExploreStep.route),
         ),
       ],
     );
@@ -282,12 +332,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
               children: [
                 for (final entry in pois.asMap().entries)
                   Positioned(
-                    top: 90 + (entry.key % 3) * 90,
-                    left: 36 + (entry.key % 4) * 76,
-                    child: _MapBadge(
-                      emoji: entry.value.emoji,
-                      index: entry.key + 1,
-                    ),
+                    top: 80 + (entry.key % 3) * 94,
+                    left: 30 + (entry.key % 4) * 78,
+                    child: _MapBadge(label: entry.value.emoji, index: entry.key + 1),
                   ),
                 const Positioned.fill(
                   child: Center(
@@ -314,55 +361,37 @@ class _ExploreScreenState extends State<ExploreScreen> {
                   children: [
                     Expanded(
                       child: Text(
-                        'The Optimized Wander',
+                        'Generated Route',
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
                     ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.accent.withValues(alpha: 0.22),
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                      child: const Text(
-                        'Shortest Path',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
+                    _SmallBadge('Shortest Path'),
                   ],
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  '${pois.length} stops • ${pois.length * 15} mins total',
+                  '${pois.length} stops - ${_controller.totalDistanceKm.toStringAsFixed(1)} km - ${_controller.estimatedMinutes} mins',
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
                 const SizedBox(height: AppSpacing.md),
                 SizedBox(
-                  height: 74,
+                  height: 78,
                   child: ListView.separated(
                     scrollDirection: Axis.horizontal,
                     itemCount: pois.length,
                     separatorBuilder: (_, _) => const SizedBox(width: 10),
                     itemBuilder: (context, index) => Container(
-                      width: 150,
+                      width: 160,
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
                         color: const Color(0xFFF8F8F8),
-                        borderRadius: BorderRadius.circular(20),
+                        borderRadius: BorderRadius.circular(16),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Text(
-                            '${index + 1}. ${pois[index].emoji} ${pois[index].name}',
-                          ),
+                          Text('${index + 1}. ${pois[index].name}'),
                           const SizedBox(height: 4),
                           Text(
                             pois[index].hours,
@@ -388,7 +417,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                     Expanded(
                       flex: 2,
                       child: PrimaryButton(
-                        label: 'Start Trip',
+                        label: 'Start Navigation',
                         onPressed: () => _controller.goTo(ExploreStep.trip),
                       ),
                     ),
@@ -439,14 +468,14 @@ class _ExploreScreenState extends State<ExploreScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          currentPoi?.name ?? 'Adventure',
+                          currentPoi?.name ?? 'Exploration route',
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
                       ],
                     ),
                   ),
                   Text(
-                    '0.4 km',
+                    '${_controller.totalDistanceKm.toStringAsFixed(1)} km',
                     style: Theme.of(
                       context,
                     ).textTheme.titleLarge?.copyWith(color: AppColors.primary),
@@ -498,160 +527,48 @@ class _ExploreScreenState extends State<ExploreScreen> {
           left: AppSpacing.lg,
           right: AppSpacing.lg,
           bottom: 40,
-          child: _controller.activePoi == null
-              ? DopamineCard(
-                  child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            width: 42,
-                            height: 42,
-                            decoration: BoxDecoration(
-                              color: AppColors.secondarySoft,
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            child: const Icon(
-                              Icons.schedule_rounded,
-                              color: AppColors.secondary,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Operating Hours',
-                                  style: Theme.of(context).textTheme.labelSmall,
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  currentPoi?.hours ?? '--',
-                                  style: Theme.of(context).textTheme.titleMedium
-                                      ?.copyWith(color: AppColors.secondary),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+          child: DopamineCard(
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: AppColors.secondarySoft,
+                        borderRadius: BorderRadius.circular(16),
                       ),
-                      const SizedBox(height: AppSpacing.md),
-                      OutlinedButton.icon(
-                        onPressed: currentPoi == null
-                            ? null
-                            : () => _controller.setActivePoi(currentPoi),
-                        icon: const Icon(Icons.place_outlined),
-                        label: const Text('Simulate Arriving'),
+                      child: const Icon(
+                        Icons.my_location_rounded,
+                        color: AppColors.secondary,
                       ),
-                    ],
-                  ),
-                )
-              : DopamineCard(
-                  child: Column(
-                    children: [
-                      Text(
-                        _controller.activePoi!.emoji,
-                        style: const TextStyle(fontSize: 48),
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'You\'ve found a lovely spot!',
-                        style: Theme.of(context).textTheme.headlineMedium,
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Welcome to ${_controller.activePoi!.name}. Would you like to save this moment?',
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Real-time tracking is active. During-trip memory prompts can be added later.',
                         style: Theme.of(context).textTheme.bodyMedium,
-                        textAlign: TextAlign.center,
                       ),
-                      const SizedBox(height: AppSpacing.lg),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton(
-                              onPressed: () => _controller.setActivePoi(null),
-                              child: const Text('Maybe later'),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: PrimaryButton(
-                              label: 'Record',
-                              icon: Icons.camera_alt_outlined,
-                              onPressed: () =>
-                                  _controller.goTo(ExploreStep.summary),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
+                const SizedBox(height: AppSpacing.md),
+                OutlinedButton.icon(
+                  onPressed: _controller.finishAndReset,
+                  icon: const Icon(Icons.stop_circle_outlined),
+                  label: const Text('End Trip'),
+                ),
+              ],
+            ),
+          ),
         ),
       ],
     );
   }
 
   Widget _summary(BuildContext context) {
-    return ListView(
-      key: const ValueKey('explore-summary'),
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.lg,
-        AppSpacing.xl,
-        AppSpacing.lg,
-        140,
-      ),
-      children: [
-        const CircleAvatar(
-          radius: 48,
-          backgroundColor: AppColors.secondarySoft,
-          child: Icon(
-            Icons.check_circle_rounded,
-            size: 48,
-            color: AppColors.secondary,
-          ),
-        ),
-        const SizedBox(height: AppSpacing.lg),
-        Text(
-          'Adventure Complete!',
-          style: Theme.of(context).textTheme.displayMedium,
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: AppSpacing.sm),
-        Text(
-          'You explored ${(_controller.selectedPois.length * 0.8).toStringAsFixed(1)} km of London today.',
-          style: Theme.of(context).textTheme.bodyMedium,
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: AppSpacing.xl),
-        Row(
-          children: [
-            Expanded(
-              child: _StatCard(
-                value: '${_controller.selectedPois.length}',
-                label: 'Places Visited',
-                color: AppColors.primary,
-              ),
-            ),
-            const SizedBox(width: 12),
-            const Expanded(
-              child: _StatCard(
-                value: '1',
-                label: 'Memories Saved',
-                color: AppColors.secondary,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: AppSpacing.lg),
-        PrimaryButton(
-          label: 'Finish & Save',
-          onPressed: _controller.finishAndReset,
-        ),
-      ],
-    );
+    return const SizedBox.shrink(key: ValueKey('explore-summary'));
   }
 }
 
@@ -719,11 +636,11 @@ class _PillChoice extends StatelessWidget {
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
           color: selected ? color : Colors.white,
-          borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: selected ? color : const Color(0xFFF0F0F0)),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: selected ? color : AppColors.border),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -750,6 +667,29 @@ class _PillChoice extends StatelessWidget {
   }
 }
 
+class _ContextChip extends StatelessWidget {
+  const _ContextChip({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return DopamineCard(
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: AppColors.secondary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(label, style: Theme.of(context).textTheme.bodyMedium),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _PoiRow extends StatelessWidget {
   const _PoiRow({required this.poi, this.leading, this.onAdd, this.onDelete});
 
@@ -765,23 +705,34 @@ class _PoiRow extends StatelessWidget {
       child: DopamineCard(
         child: Row(
           children: [
-            leading ?? Text(poi.emoji, style: const TextStyle(fontSize: 28)),
-            if (leading != null) ...[
-              const SizedBox(width: 14),
-              Text(poi.emoji, style: const TextStyle(fontSize: 28)),
-            ],
+            leading ??
+                CircleAvatar(
+                  backgroundColor: AppColors.primarySoft,
+                  child: Text(poi.emoji),
+                ),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    poi.name,
-                    style: Theme.of(context).textTheme.titleMedium,
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          poi.name,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                      ),
+                      const Icon(Icons.star_rounded, size: 16, color: AppColors.accent),
+                      Text(
+                        poi.rating.toStringAsFixed(1),
+                        style: Theme.of(context).textTheme.labelSmall,
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    poi.hours,
+                    poi.reason,
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                 ],
@@ -805,9 +756,9 @@ class _PoiRow extends StatelessWidget {
 }
 
 class _MapBadge extends StatelessWidget {
-  const _MapBadge({required this.emoji, required this.index});
+  const _MapBadge({required this.label, required this.index});
 
-  final String emoji;
+  final String label;
   final int index;
 
   @override
@@ -816,13 +767,15 @@ class _MapBadge extends StatelessWidget {
       clipBehavior: Clip.none,
       children: [
         Container(
-          padding: const EdgeInsets.all(10),
+          width: 44,
+          height: 44,
+          alignment: Alignment.center,
           decoration: BoxDecoration(
             color: Colors.white,
             shape: BoxShape.circle,
             border: Border.all(color: AppColors.primary, width: 2),
           ),
-          child: Text(emoji, style: const TextStyle(fontSize: 20)),
+          child: Text(label, style: const TextStyle(fontWeight: FontWeight.w900)),
         ),
         Positioned(
           top: -8,
@@ -841,31 +794,22 @@ class _MapBadge extends StatelessWidget {
   }
 }
 
-class _StatCard extends StatelessWidget {
-  const _StatCard({
-    required this.value,
-    required this.label,
-    required this.color,
-  });
+class _SmallBadge extends StatelessWidget {
+  const _SmallBadge(this.label);
 
-  final String value;
   final String label;
-  final Color color;
 
   @override
   Widget build(BuildContext context) {
-    return DopamineCard(
-      child: Column(
-        children: [
-          Text(
-            value,
-            style: Theme.of(
-              context,
-            ).textTheme.headlineLarge?.copyWith(color: color),
-          ),
-          const SizedBox(height: 8),
-          Text(label, style: Theme.of(context).textTheme.labelSmall),
-        ],
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.accent.withValues(alpha: 0.24),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800),
       ),
     );
   }

@@ -14,7 +14,13 @@ class ExploreController extends ChangeNotifier {
   EnergyLevel energy = EnergyLevel.medium;
   final List<PoiCategory> interests = [PoiCategory.nature];
   final List<Poi> selectedPois = [];
+  final List<String> chatMessages = [
+    'AI: What kind of place sounds good today: nature, culture, food, arts, or something else?',
+  ];
   String searchQuery = '';
+  String chatInput = '';
+  String moodNote = 'Quiet places preferred';
+  String timeAvailable = 'Half day';
   Poi? activePoi;
   Offset userPosition = const Offset(0.40, 0.40);
 
@@ -54,6 +60,32 @@ class ExploreController extends ChangeNotifier {
     return result;
   }
 
+  double get totalDistanceKm {
+    if (optimizedPois.length < 2) {
+      return optimizedPois.length * 0.7;
+    }
+
+    var total = 0.0;
+    for (var index = 0; index < optimizedPois.length - 1; index++) {
+      final current = optimizedPois[index];
+      final next = optimizedPois[index + 1];
+      total += sqrt(
+            pow(current.lat - next.lat, 2) + pow(current.lng - next.lng, 2),
+          ) *
+          92;
+    }
+    return total.clamp(0.8, 9.9);
+  }
+
+  int get estimatedMinutes {
+    final base = switch (energy) {
+      EnergyLevel.low => 24,
+      EnergyLevel.medium => 18,
+      EnergyLevel.high => 14,
+    };
+    return (optimizedPois.length * base + totalDistanceKm * 12).round();
+  }
+
   List<Poi> get filteredSearchResults {
     final query = searchQuery.trim().toLowerCase();
     if (query.isEmpty) {
@@ -78,11 +110,63 @@ class ExploreController extends ChangeNotifier {
 
   void setMode(RouteMode value) {
     mode = value;
+    energy = switch (value) {
+      RouteMode.relaxed => EnergyLevel.low,
+      RouteMode.medium => EnergyLevel.medium,
+      RouteMode.active => EnergyLevel.high,
+    };
     notifyListeners();
   }
 
   void setEnergy(EnergyLevel value) {
     energy = value;
+    mode = switch (value) {
+      EnergyLevel.low => RouteMode.relaxed,
+      EnergyLevel.medium => RouteMode.medium,
+      EnergyLevel.high => RouteMode.active,
+    };
+    notifyListeners();
+  }
+
+  void setChatInput(String value) {
+    chatInput = value;
+  }
+
+  void addChatMessage() {
+    final trimmed = chatInput.trim();
+    if (trimmed.isEmpty) {
+      return;
+    }
+
+    chatMessages.add('You: $trimmed');
+    final lower = trimmed.toLowerCase();
+    for (final category in PoiCategory.values) {
+      if (lower.contains(category.label.toLowerCase()) &&
+          !interests.contains(category)) {
+        interests.add(category);
+      }
+    }
+    if (lower.contains('tired') ||
+        lower.contains('quiet') ||
+        lower.contains('relaxed') ||
+        lower.contains('slow')) {
+      moodNote = 'Relaxed and quiet';
+      setEnergy(EnergyLevel.low);
+    } else if (lower.contains('active') ||
+        lower.contains('walk') ||
+        lower.contains('energetic')) {
+      moodNote = 'Ready to walk more';
+      setEnergy(EnergyLevel.high);
+    }
+    if (lower.contains('hour')) {
+      timeAvailable = 'About 1 hour';
+    } else if (lower.contains('half')) {
+      timeAvailable = 'Half day';
+    }
+    chatMessages.add(
+      'AI: Got it. I will use your interests, ${energy.label.toLowerCase()} intensity, and "$moodNote" to recommend places.',
+    );
+    chatInput = '';
     notifyListeners();
   }
 
@@ -109,12 +193,12 @@ class ExploreController extends ChangeNotifier {
         .toList();
     final count = switch (energy) {
       EnergyLevel.low => 2,
-      EnergyLevel.medium => 4,
-      EnergyLevel.high => 6,
+      EnergyLevel.medium => 3,
+      EnergyLevel.high => 5,
     };
     selectedPois
       ..clear()
-      ..addAll(filtered.take(count));
+      ..addAll((filtered.isEmpty ? MockData.pois : filtered).take(count));
     step = ExploreStep.customize;
     notifyListeners();
   }

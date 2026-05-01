@@ -6,29 +6,45 @@ class AuthService {
   AuthService._();
 
   static final AuthService instance = AuthService._();
+  static const String _googleServerClientId =
+      '1098467181300-hh410eo4hm6dmu1tv4q7am65l24pstd4.apps.googleusercontent.com';
 
   final FirebaseAuth _firebaseAuth = FirebaseAuth.instance;
-  final GoogleSignIn _googleSignIn = GoogleSignIn.instance;
-
-  bool _googleIsInitialized = false;
+  final GoogleSignIn _googleSignIn = GoogleSignIn(
+    serverClientId: _googleServerClientId,
+    scopes: <String>[
+      'email',
+      'profile',
+    ],
+  );
+  final ValueNotifier<bool> previewModeNotifier = ValueNotifier<bool>(false);
 
   Stream<User?> authStateChanges() => _firebaseAuth.authStateChanges();
 
   User? get currentUser => _firebaseAuth.currentUser;
+  bool get isPreviewMode => previewModeNotifier.value;
 
   Future<UserCredential> signInWithGoogle() async {
     try {
-      await _ensureGoogleInitialized();
+      previewModeNotifier.value = false;
 
       debugPrint('[AuthService] Starting Google sign-in flow...');
 
-      final GoogleSignInAccount googleUser = await _googleSignIn.authenticate();
+      final GoogleSignInAccount? googleAccount = await _googleSignIn.signIn();
 
-      debugPrint('[AuthService] Google account selected: ${googleUser.email}');
+      if (googleAccount == null) {
+        debugPrint('[AuthService] Google sign-in was canceled.');
+        throw const AuthException('Google sign-in was canceled.');
+      }
 
-      final GoogleSignInAuthentication googleAuth = googleUser.authentication;
+      debugPrint('[AuthService] Google account selected: ${googleAccount.email}');
+
+      final GoogleSignInAuthentication googleAuth =
+          await googleAccount.authentication;
 
       final String? idToken = googleAuth.idToken;
+      final String? accessToken = googleAuth.accessToken;
+
       if (idToken == null || idToken.isEmpty) {
         debugPrint('[AuthService] idToken is null or empty.');
         throw const AuthException(
@@ -38,6 +54,7 @@ class AuthService {
       }
 
       final AuthCredential credential = GoogleAuthProvider.credential(
+        accessToken: accessToken,
         idToken: idToken,
       );
 
@@ -51,12 +68,6 @@ class AuthService {
       );
 
       return userCredential;
-    } on GoogleSignInException catch (error, stackTrace) {
-      debugPrint('[AuthService] GoogleSignInException caught.');
-      debugPrint('[AuthService] code: ${error.code}');
-      debugPrint('[AuthService] description: ${error.description}');
-      debugPrint('[AuthService] stackTrace: $stackTrace');
-      throw AuthException(_googleSignInMessage(error));
     } on FirebaseAuthException catch (error, stackTrace) {
       debugPrint('[AuthService] FirebaseAuthException caught.');
       debugPrint('[AuthService] code: ${error.code}');
@@ -66,18 +77,21 @@ class AuthService {
     } on AuthException {
       rethrow;
     } catch (error, stackTrace) {
+      debugPrint('[AuthService] Unknown sign-in error type: ${error.runtimeType}');
       debugPrint('[AuthService] Unknown sign-in error: $error');
       debugPrint('[AuthService] stackTrace: $stackTrace');
-      throw const AuthException(
-        'Sign-in failed for an unexpected reason. Please try again.',
-      );
+      throw AuthException(_googleSignInMessage(error));
     }
   }
 
   Future<void> signOut() async {
-    try {
-      await _ensureGoogleInitialized();
+    if (isPreviewMode) {
+      debugPrint('[AuthService] Leaving preview mode...');
+      previewModeNotifier.value = false;
+      return;
+    }
 
+    try {
       debugPrint('[AuthService] Signing out from Google and Firebase...');
 
       await _googleSignIn.signOut();
@@ -90,48 +104,78 @@ class AuthService {
       debugPrint('[AuthService] message: ${error.message}');
       debugPrint('[AuthService] stackTrace: $stackTrace');
       throw AuthException(_firebaseAuthMessage(error));
-    } on GoogleSignInException catch (error, stackTrace) {
-      debugPrint('[AuthService] GoogleSignInException during sign-out.');
-      debugPrint('[AuthService] code: ${error.code}');
-      debugPrint('[AuthService] description: ${error.description}');
-      debugPrint('[AuthService] stackTrace: $stackTrace');
-      throw AuthException(_googleSignInMessage(error));
     } catch (error, stackTrace) {
+      debugPrint('[AuthService] Unknown sign-out error type: ${error.runtimeType}');
       debugPrint('[AuthService] Unknown sign-out error: $error');
       debugPrint('[AuthService] stackTrace: $stackTrace');
-      throw const AuthException(
-        'Sign-out failed for an unexpected reason. Please try again.',
+      throw AuthException(_googleSignInMessage(error));
+    }
+  }
+
+  /// Lets us enter the app UI temporarily without removing the auth system.
+  ///
+  /// This is useful while the real Google/Firebase flow is still being fixed.
+  void enterPreviewMode() {
+    debugPrint('[AuthService] Entering preview mode...');
+    previewModeNotifier.value = true;
+  }
+
+  String _googleSignInMessage(Object error) {
+    final String description = error.toString();
+    final String lowerDescription = description.toLowerCase();
+
+    if (lowerDescription.contains('sign_in_canceled') ||
+        lowerDescription.contains('sign in canceled') ||
+        lowerDescription.contains('sign-in canceled') ||
+        lowerDescription.contains('canceled')) {
+      return 'Google sign-in was canceled.';
+    }
+
+    if (lowerDescription.contains('network_error') ||
+        lowerDescription.contains('network error') ||
+        lowerDescription.contains('network')) {
+      return 'Network error. Please check your connection and try again.';
+    }
+
+    if (lowerDescription.contains('sign_in_failed') ||
+        lowerDescription.contains('sign in failed') ||
+        lowerDescription.contains('sign-in failed') ||
+        lowerDescription.contains('12500')) {
+      return _withRawError(
+        'Google sign-in failed on this device. Please check Firebase, '
+        'SHA-1, and google-services.json.',
+        description,
       );
     }
-  }
 
-  Future<void> _ensureGoogleInitialized() async {
-    if (_googleIsInitialized) return;
-
-    debugPrint('[AuthService] Initializing GoogleSignIn...');
-    await _googleSignIn.initialize();
-    _googleIsInitialized = true;
-    debugPrint('[AuthService] GoogleSignIn initialized.');
-  }
-
-  String _googleSignInMessage(GoogleSignInException error) {
-    switch (error.code) {
-      case GoogleSignInExceptionCode.canceled:
-        return 'Google sign-in was canceled.';
-      case GoogleSignInExceptionCode.clientConfigurationError:
-      case GoogleSignInExceptionCode.providerConfigurationError:
-        return 'Google sign-in is not configured correctly yet. '
-            'Please check Firebase, SHA-1, and google-services.json.';
-      case GoogleSignInExceptionCode.uiUnavailable:
-        return 'Google sign-in UI is unavailable right now. Please try again.';
-      case GoogleSignInExceptionCode.interrupted:
-        return 'Google sign-in was interrupted. Please try again.';
-      case GoogleSignInExceptionCode.userMismatch:
-        return 'Google account mismatch detected. Please sign out and try again.';
-      case GoogleSignInExceptionCode.unknownError:
-        return error.description ??
-            'An unknown Google sign-in error occurred.';
+    if (lowerDescription.contains('no credentials available')) {
+      return _withRawError(
+        'This phone does not have an available Google sign-in credential. '
+        'Please make sure the phone is signed into a Google account, Play '
+        'Services is working, and then try again.',
+        description,
+      );
     }
+
+    if (lowerDescription.contains('account reauth failed')) {
+      return _withRawError(
+        'Google account re-authentication failed on this device. '
+        'This is usually a Google/Firebase Android configuration issue, not '
+        'a button cancel from you. Please try reinstalling the app after a '
+        'full rebuild, and if it still fails we should re-check the Firebase '
+        'Android app package and SHA setup.',
+        description,
+      );
+    }
+
+    return _withRawError(
+      'Sign-in failed for an unexpected reason. Please try again.',
+      description,
+    );
+  }
+
+  String _withRawError(String message, String rawError) {
+    return '$message\n\nRaw error:\n$rawError';
   }
 
   String _firebaseAuthMessage(FirebaseAuthException error) {

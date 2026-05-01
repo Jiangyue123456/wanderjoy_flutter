@@ -45,6 +45,13 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  void _enterPreviewMode() {
+    setState(() {
+      _errorMessage = null;
+    });
+    AuthService.instance.enterPreviewMode();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -147,6 +154,28 @@ class _LoginScreenState extends State<LoginScreen> {
                               const SizedBox(height: AppSpacing.md),
                               const CircularProgressIndicator(
                                 color: AppColors.secondary,
+                              ),
+                            ] else ...[
+                              const SizedBox(height: AppSpacing.md),
+                              OutlinedButton.icon(
+                                onPressed: _enterPreviewMode,
+                                icon: const Icon(Icons.visibility_outlined),
+                                label: const Text(
+                                  'Preview app without sign-in',
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  minimumSize: const Size(
+                                    double.infinity,
+                                    56,
+                                  ),
+                                  foregroundColor: AppColors.ink,
+                                  side: const BorderSide(
+                                    color: AppColors.border,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(22),
+                                  ),
+                                ),
                               ),
                             ],
                           ],

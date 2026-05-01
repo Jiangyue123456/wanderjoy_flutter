@@ -47,16 +47,6 @@ class _AppShellState extends State<AppShell> {
         body: SafeArea(
           child: Stack(
             children: [
-              const Positioned(
-                top: -80,
-                right: -60,
-                child: _BlurOrb(color: AppColors.primarySoft),
-              ),
-              const Positioned(
-                top: 260,
-                left: -80,
-                child: _BlurOrb(color: AppColors.secondarySoft),
-              ),
               Column(
                 children: [
                   const Padding(
@@ -98,33 +88,6 @@ class _AppShellState extends State<AppShell> {
         bottomNavigationBar: WanderBottomNav(
           activeTab: _activeTab,
           onChanged: (tab) => setState(() => _activeTab = tab),
-        ),
-      ),
-    );
-  }
-}
-
-class _BlurOrb extends StatelessWidget {
-  const _BlurOrb({required this.color});
-
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return IgnorePointer(
-      child: Container(
-        width: 220,
-        height: 220,
-        decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(999),
-          boxShadow: [
-            BoxShadow(
-              color: color.withValues(alpha: 0.55),
-              blurRadius: 120,
-              spreadRadius: 30,
-            ),
-          ],
         ),
       ),
     );

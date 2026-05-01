@@ -14,8 +14,9 @@ class SocialController extends ChangeNotifier {
   SocialStep step = SocialStep.nearby;
   UserProfile? selectedUser;
   RequestStatus requestStatus = RequestStatus.none;
-  String meetingPoint = 'Art Alley Entrance';
+  String meetingPoint = 'Midpoint Cafe Plaza';
   String meetingTime = '14:30';
+  final List<String> meetingTimeOptions = const ['14:00', '14:30', '15:00'];
   final List<Poi> sharedPois = [];
   String searchQuery = '';
   bool nfcScanning = false;
@@ -71,6 +72,11 @@ class SocialController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void rejectRequest() {
+    requestStatus = RequestStatus.rejected;
+    notifyListeners();
+  }
+
   void setMeetingPoint(String value) {
     meetingPoint = value;
     notifyListeners();
@@ -120,7 +126,7 @@ class SocialController extends ChangeNotifier {
     _nfcTimer?.cancel();
     selectedUser = null;
     requestStatus = RequestStatus.none;
-    meetingPoint = 'Art Alley Entrance';
+    meetingPoint = 'Midpoint Cafe Plaza';
     meetingTime = '14:30';
     sharedPois.clear();
     searchQuery = '';
