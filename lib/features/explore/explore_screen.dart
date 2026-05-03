@@ -1,11 +1,20 @@
-import 'package:flutter/material.dart';
+import 'dart:io';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:record/record.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+import '../../app/auth/auth_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../shared/models/app_models.dart';
 import '../../shared/widgets/dopamine_card.dart';
 import '../../shared/widgets/primary_button.dart';
 import 'explore_controller.dart';
+import 'voice_transcription_service.dart';
 
 class ExploreScreen extends StatefulWidget {
   const ExploreScreen({super.key});
@@ -16,7 +25,11 @@ class ExploreScreen extends StatefulWidget {
 
 class _ExploreScreenState extends State<ExploreScreen> {
   late final ExploreController _controller;
+  final AudioRecorder _recorder = AudioRecorder();
+  final VoiceTranscriptionService _voiceTranscriptionService =
+      const VoiceTranscriptionService();
   final TextEditingController _chatTextController = TextEditingController();
+  bool _isTranscribingVoice = false;
 
   @override
   void initState() {
@@ -26,12 +39,81 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
   @override
   void dispose() {
+    _recorder.dispose();
     _chatTextController.dispose();
     _controller.dispose();
     super.dispose();
   }
 
-  void _sendChat() {
+  Future<void> _toggleVoiceInput() async {
+    if (_controller.isListening) {
+      await _stopVoiceInput();
+      return;
+    }
+
+    _controller.setExploreError(null);
+
+    if (!await _recorder.hasPermission()) {
+      _controller.setExploreError(
+        'Microphone permission is needed for voice input. You can still type your request.',
+      );
+      return;
+    }
+
+    _chatTextController.clear();
+    _controller.setChatInput('');
+    final tempDir = await getTemporaryDirectory();
+    final audioPath =
+        '${tempDir.path}/wanderjoy_voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+
+    await _recorder.start(
+      const RecordConfig(
+        encoder: AudioEncoder.aacLc,
+        bitRate: 64000,
+        sampleRate: 16000,
+        numChannels: 1,
+      ),
+      path: audioPath,
+    );
+    _controller.setListeningState(true);
+  }
+
+  Future<void> _stopVoiceInput() async {
+    final audioPath = await _recorder.stop();
+    _controller.setListeningState(false);
+    if (audioPath == null || audioPath.trim().isEmpty) {
+      _controller.setExploreError('Voice recording did not save. Please try again.');
+      return;
+    }
+
+    setState(() {
+      _isTranscribingVoice = true;
+    });
+
+    try {
+      final transcript = await _voiceTranscriptionService.transcribe(
+        File(audioPath),
+      );
+      _chatTextController.value = TextEditingValue(
+        text: transcript,
+        selection: TextSelection.collapsed(offset: transcript.length),
+      );
+      _controller.setChatInput(transcript);
+    } on Object catch (error) {
+      _controller.setExploreError('Voice transcription failed: $error');
+    } finally {
+      setState(() {
+        _isTranscribingVoice = false;
+      });
+
+      final file = File(audioPath);
+      if (await file.exists()) {
+        await file.delete();
+      }
+    }
+  }
+
+  void _sendTypedMessage() {
     _controller.addChatMessage();
     _chatTextController.clear();
   }
@@ -136,6 +218,51 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 
   Widget _input(BuildContext context) {
+    if (AuthService.instance.isPreviewMode) {
+      _applyProfileAfterBuild(null, fallbackName: 'Preview Explorer');
+      return _inputContent(context, isProfileLoading: false);
+    }
+
+    final User? user = AuthService.instance.currentUser;
+    if (user == null) {
+      _applyProfileAfterBuild(null);
+      return _inputContent(context, isProfileLoading: false);
+    }
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('profiles')
+          .doc(user.uid)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasData) {
+          _applyProfileAfterBuild(
+            snapshot.data?.data(),
+            fallbackName: user.displayName,
+          );
+        }
+
+        return _inputContent(
+          context,
+          isProfileLoading: snapshot.connectionState == ConnectionState.waiting,
+        );
+      },
+    );
+  }
+
+  void _applyProfileAfterBuild(
+    Map<String, dynamic>? data, {
+    String? fallbackName,
+  }) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      _controller.applyProfile(data, fallbackName: fallbackName);
+    });
+  }
+
+  Widget _inputContent(BuildContext context, {required bool isProfileLoading}) {
     return ListView(
       key: const ValueKey('explore-input'),
       padding: const EdgeInsets.fromLTRB(
@@ -146,101 +273,190 @@ class _ExploreScreenState extends State<ExploreScreen> {
       ),
       children: [
         _FlowHeader(
-          title: 'AI Chat Input',
+          title: 'Talk with AI',
           onBack: () => _controller.goTo(ExploreStep.home),
         ),
         const SizedBox(height: AppSpacing.lg),
         DopamineCard(
+          padding: const EdgeInsets.all(0),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              for (final message in _controller.chatMessages)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: Text(
-                    message,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: message.startsWith('AI:')
-                          ? AppColors.ink
-                          : AppColors.primary,
+              Padding(
+                padding: const EdgeInsets.all(18),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: _controller.isListening
+                            ? AppColors.primary
+                            : AppColors.primarySoft,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        _controller.isListening
+                            ? Icons.graphic_eq_rounded
+                            : Icons.mic_rounded,
+                        color: _controller.isListening
+                            ? Colors.white
+                            : AppColors.primary,
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _isTranscribingVoice
+                                ? 'Turning voice into text'
+                                : _controller.isListening
+                                ? 'Recording now'
+                                : 'Tap the mic to talk',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            isProfileLoading
+                                ? 'Loading your saved profile...'
+                                : 'Using profile interests, bio, and pace.',
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-              TextField(
-                controller: _chatTextController,
-                onChanged: _controller.setChatInput,
-                onSubmitted: (_) => _sendChat(),
-                decoration: InputDecoration(
-                  hintText: 'Interests, mood, time, special preferences...',
-                  suffixIcon: IconButton(
-                    onPressed: _sendChat,
-                    icon: const Icon(Icons.send_rounded),
-                  ),
+              ),
+              const Divider(height: 1, color: AppColors.border),
+              Padding(
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  children: [
+                    for (final message in _controller.chatMessages)
+                      _VoiceMessageBubble(message: message),
+                    const SizedBox(height: AppSpacing.md),
+                    TextField(
+                      controller: _chatTextController,
+                      minLines: 1,
+                      maxLines: 3,
+                      onChanged: _controller.setChatInput,
+                      onSubmitted: (_) => _sendTypedMessage(),
+                      decoration: InputDecoration(
+                        hintText: 'Tell WanderJoy what you want to explore...',
+                        prefixIcon: const Icon(Icons.chat_bubble_outline_rounded),
+                        suffixIcon: IconButton(
+                          onPressed: _sendTypedMessage,
+                          icon: const Icon(Icons.send_rounded),
+                        ),
+                        filled: true,
+                        fillColor: Colors.white,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(20),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    GestureDetector(
+                      onTap: _isTranscribingVoice ? null : _toggleVoiceInput,
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        width: 108,
+                        height: 108,
+                        decoration: BoxDecoration(
+                          color: _controller.isListening
+                              ? AppColors.primary
+                              : AppColors.secondarySoft,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: (_controller.isListening
+                                      ? AppColors.primary
+                                      : AppColors.secondary)
+                                  .withValues(alpha: 0.24),
+                              blurRadius: 26,
+                              offset: const Offset(0, 12),
+                            ),
+                          ],
+                        ),
+                        child: Icon(
+                          _controller.isListening
+                              ? Icons.stop_rounded
+                              : Icons.mic_rounded,
+                          size: 42,
+                          color: _controller.isListening
+                              ? Colors.white
+                              : AppColors.secondary,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      _isTranscribingVoice
+                          ? 'Transcribing...'
+                          : _controller.isListening
+                          ? 'Tap again to stop'
+                          : 'Start voice input',
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
         ),
         const SizedBox(height: AppSpacing.lg),
-        const _MiniLabel('Interests'),
-        const SizedBox(height: AppSpacing.sm),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: PoiCategory.values
-              .map(
-                (category) => _PillChoice(
-                  label: category.label,
-                  selected: _controller.interests.contains(category),
-                  color: AppColors.accent,
-                  selectedTextColor: AppColors.ink,
-                  icon: Icons.favorite_rounded,
-                  onTap: () => _controller.toggleInterest(category),
-                ),
-              )
-              .toList(),
-        ),
-        const SizedBox(height: AppSpacing.lg),
-        const _MiniLabel('Travel Intensity'),
-        const SizedBox(height: AppSpacing.sm),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: RouteMode.values
-              .map(
-                (mode) => _PillChoice(
-                  label: mode.label,
-                  selected: _controller.mode == mode,
-                  color: AppColors.primary,
-                  icon: Icons.directions_walk_rounded,
-                  onTap: () => _controller.setMode(mode),
-                ),
-              )
-              .toList(),
-        ),
-        const SizedBox(height: AppSpacing.lg),
         Row(
           children: [
             Expanded(
               child: _ContextChip(
-                icon: Icons.psychology_alt_outlined,
-                label: _controller.moodNote,
+                icon: Icons.favorite_rounded,
+                label: _controller.profileInterestLabels.join(', '),
               ),
             ),
             const SizedBox(width: 10),
             Expanded(
               child: _ContextChip(
-                icon: Icons.schedule_rounded,
-                label: _controller.timeAvailable,
+                icon: Icons.directions_walk_rounded,
+                label: _controller.energy.label,
               ),
             ),
           ],
         ),
+        const SizedBox(height: 10),
+        _ContextChip(
+          icon: Icons.notes_rounded,
+          label: _controller.profileBio,
+        ),
         const SizedBox(height: AppSpacing.xl),
+        if (_controller.exploreError != null) ...[
+          DopamineCard(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: [
+                const Icon(Icons.info_outline_rounded, color: AppColors.secondary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    _controller.exploreError!,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+        ],
         PrimaryButton(
-          label: 'Recommend Places',
+          label: _controller.isGeneratingPlaces
+              ? 'Finding places...'
+              : 'Recommend places',
           icon: Icons.travel_explore_rounded,
-          onPressed: _controller.generateInitialRoute,
+          onPressed: _controller.isGeneratingPlaces
+              ? null
+              : _controller.generateInitialRoute,
         ),
       ],
     );
@@ -280,7 +496,11 @@ class _ExploreScreenState extends State<ExploreScreen> {
           const _MiniLabel('Search Results'),
           const SizedBox(height: AppSpacing.sm),
           ...results.map(
-            (poi) => _PoiRow(poi: poi, onAdd: () => _controller.addPoi(poi)),
+            (poi) => _PoiRow(
+              poi: poi,
+              onTap: () => _showPoiDetails(context, poi),
+              onAdd: () => _controller.addPoi(poi),
+            ),
           ),
         ],
         const SizedBox(height: AppSpacing.lg),
@@ -298,6 +518,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
         ..._controller.selectedPois.asMap().entries.map(
           (entry) => _PoiRow(
             poi: entry.value,
+            distanceKm: _controller.distanceFromCurrentKm(entry.value),
+            onTap: () => _showPoiDetails(context, entry.value),
             leading: CircleAvatar(
               radius: 14,
               backgroundColor: AppColors.primary,
@@ -570,6 +792,45 @@ class _ExploreScreenState extends State<ExploreScreen> {
   Widget _summary(BuildContext context) {
     return const SizedBox.shrink(key: ValueKey('explore-summary'));
   }
+
+  void _showPoiDetails(BuildContext context, Poi poi) {
+    final distanceKm = _controller.distanceFromCurrentKm(poi);
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) => _PoiDetailsSheet(
+        poi: poi,
+        distanceKm: distanceKm,
+        onOpenMaps: () => _openPoiInMaps(poi),
+      ),
+    );
+  }
+
+  Future<void> _openPoiInMaps(Poi poi) async {
+    final uri = Uri.parse(_googleMapsUrlFor(poi));
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      await launchUrl(uri, mode: LaunchMode.platformDefault);
+    }
+  }
+
+  String _googleMapsUrlFor(Poi poi) {
+    if (poi.mapsUri.trim().startsWith('http')) {
+      return poi.mapsUri.trim();
+    }
+
+    final query = Uri.encodeComponent(poi.name);
+    final placeId = Uri.encodeComponent(poi.googlePlaceId);
+    if (poi.googlePlaceId.trim().isNotEmpty) {
+      return 'https://www.google.com/maps/search/?api=1&query=$query&query_place_id=$placeId';
+    }
+
+    return 'https://www.google.com/maps/search/?api=1&query=$query&center=${poi.lat},${poi.lng}';
+  }
 }
 
 class _FlowHeader extends StatelessWidget {
@@ -595,6 +856,43 @@ class _FlowHeader extends StatelessWidget {
           child: Text(title, style: Theme.of(context).textTheme.headlineMedium),
         ),
       ],
+    );
+  }
+}
+
+class _VoiceMessageBubble extends StatelessWidget {
+  const _VoiceMessageBubble({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final isAi = message.startsWith('AI:');
+    final text = message.replaceFirst(isAi ? 'AI: ' : 'You: ', '');
+
+    return Align(
+      alignment: isAi ? Alignment.centerLeft : Alignment.centerRight,
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 290),
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: isAi ? AppColors.backgroundSoft : AppColors.primarySoft,
+          borderRadius: BorderRadius.only(
+            topLeft: const Radius.circular(18),
+            topRight: const Radius.circular(18),
+            bottomLeft: Radius.circular(isAi ? 4 : 18),
+            bottomRight: Radius.circular(isAi ? 18 : 4),
+          ),
+        ),
+        child: Text(
+          text,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: isAi ? AppColors.ink : AppColors.primary,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
     );
   }
 }
@@ -691,10 +989,19 @@ class _ContextChip extends StatelessWidget {
 }
 
 class _PoiRow extends StatelessWidget {
-  const _PoiRow({required this.poi, this.leading, this.onAdd, this.onDelete});
+  const _PoiRow({
+    required this.poi,
+    this.leading,
+    this.distanceKm,
+    this.onTap,
+    this.onAdd,
+    this.onDelete,
+  });
 
   final Poi poi;
   final Widget? leading;
+  final double? distanceKm;
+  final VoidCallback? onTap;
   final VoidCallback? onAdd;
   final VoidCallback? onDelete;
 
@@ -702,55 +1009,224 @@ class _PoiRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: DopamineCard(
-        child: Row(
+      child: GestureDetector(
+        onTap: onTap,
+        child: DopamineCard(
+          child: Row(
+            children: [
+              leading ??
+                  CircleAvatar(
+                    backgroundColor: AppColors.primarySoft,
+                    child: Text(poi.emoji),
+                  ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            poi.name,
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                        ),
+                        const Icon(
+                          Icons.auto_awesome_rounded,
+                          size: 16,
+                          color: AppColors.accent,
+                        ),
+                        Text(
+                          'Match ${(poi.matchScore * 100).round()}%',
+                          style: Theme.of(context).textTheme.labelSmall,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      poi.reason,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      children: [
+                        if (distanceKm != null)
+                          _InlineInfo(
+                            icon: Icons.near_me_outlined,
+                            label: '${distanceKm!.toStringAsFixed(1)} km',
+                          ),
+                        if (poi.googlePlaceId.isNotEmpty)
+                          const _InlineInfo(
+                            icon: Icons.map_outlined,
+                            label: 'Google Maps',
+                          ),
+                        if (poi.placeType.isNotEmpty)
+                          _InlineInfo(
+                            icon: Icons.category_outlined,
+                            label: poi.placeType,
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              if (onAdd != null)
+                IconButton.filledTonal(
+                  onPressed: onAdd,
+                  icon: const Icon(Icons.add_rounded),
+                ),
+              if (onDelete != null)
+                IconButton(
+                  onPressed: onDelete,
+                  icon: const Icon(Icons.delete_outline_rounded),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _InlineInfo extends StatelessWidget {
+  const _InlineInfo({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: AppColors.backgroundSoft,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: AppColors.secondary),
+          const SizedBox(width: 4),
+          Text(label, style: Theme.of(context).textTheme.labelSmall),
+        ],
+      ),
+    );
+  }
+}
+
+class _PoiDetailsSheet extends StatelessWidget {
+  const _PoiDetailsSheet({
+    required this.poi,
+    required this.distanceKm,
+    required this.onOpenMaps,
+  });
+
+  final Poi poi;
+  final double? distanceKm;
+  final VoidCallback onOpenMaps;
+
+  @override
+  Widget build(BuildContext context) {
+    final matchPercent = poi.matchScore > 0
+        ? '${(poi.matchScore * 100).round()}%'
+        : '${(poi.rating / 5 * 100).round()}%';
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            leading ??
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                 CircleAvatar(
+                  radius: 24,
                   backgroundColor: AppColors.primarySoft,
                   child: Text(poi.emoji),
                 ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: Text(
-                          poi.name,
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                      ),
-                      const Icon(Icons.star_rounded, size: 16, color: AppColors.accent),
                       Text(
-                        poi.rating.toStringAsFixed(1),
-                        style: Theme.of(context).textTheme.labelSmall,
+                        poi.name,
+                        style: Theme.of(context).textTheme.headlineMedium,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        poi.placeType.isEmpty ? poi.category.label : poi.placeType,
+                        style: Theme.of(context).textTheme.bodyMedium,
                       ),
                     ],
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    poi.reason,
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
-            if (onAdd != null)
-              IconButton.filledTonal(
-                onPressed: onAdd,
-                icon: const Icon(Icons.add_rounded),
-              ),
-            if (onDelete != null)
-              IconButton(
-                onPressed: onDelete,
-                icon: const Icon(Icons.delete_outline_rounded),
-              ),
+            const SizedBox(height: AppSpacing.lg),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _InlineInfo(
+                  icon: Icons.auto_awesome_rounded,
+                  label: 'Match $matchPercent',
+                ),
+                if (distanceKm != null)
+                  _InlineInfo(
+                    icon: Icons.near_me_outlined,
+                    label: '${distanceKm!.toStringAsFixed(1)} km away',
+                  ),
+                _InlineInfo(
+                  icon: Icons.location_on_outlined,
+                  label:
+                      '${poi.lat.toStringAsFixed(4)}, ${poi.lng.toStringAsFixed(4)}',
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            _DetailBlock(title: 'Why this fits', body: poi.reason),
+            const SizedBox(height: AppSpacing.md),
+            _DetailBlock(title: 'Suggested activity', body: poi.description),
+            const SizedBox(height: AppSpacing.md),
+            const _DetailBlock(
+              title: 'Live details',
+              body:
+                  'Open Google Maps for current hours, ratings, reviews, photos, and directions.',
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            PrimaryButton(
+              label: 'Open in Google Maps',
+              icon: Icons.map_rounded,
+              onPressed: onOpenMaps,
+            ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _DetailBlock extends StatelessWidget {
+  const _DetailBlock({required this.title, required this.body});
+
+  final String title;
+  final String body;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title.toUpperCase(), style: Theme.of(context).textTheme.labelSmall),
+        const SizedBox(height: 6),
+        Text(body, style: Theme.of(context).textTheme.bodyMedium),
+      ],
     );
   }
 }

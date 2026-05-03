@@ -46,6 +46,10 @@ class Poi {
     required this.lng,
     required this.emoji,
     required this.hours,
+    this.googlePlaceId = '',
+    this.mapsUri = '',
+    this.placeType = '',
+    this.matchScore = 0,
   });
 
   final String id;
@@ -58,6 +62,10 @@ class Poi {
   final double lng;
   final String emoji;
   final String hours;
+  final String googlePlaceId;
+  final String mapsUri;
+  final String placeType;
+  final double matchScore;
 }
 
 class MemoryEntry {

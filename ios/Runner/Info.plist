@@ -24,6 +24,10 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>WanderJoy uses the microphone so you can describe what you want to explore by voice.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>WanderJoy uses speech recognition to turn your spoken exploration preferences into text.</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
