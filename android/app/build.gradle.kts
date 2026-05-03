@@ -1,3 +1,7 @@
+import java.util.Properties
+import java.net.URLDecoder
+import java.util.Base64
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -5,6 +9,38 @@ plugins {
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.inputStream().use { localProperties.load(it) }
+}
+
+fun dartDefine(name: String): String? {
+    val encodedDefines = project.findProperty("dart-defines") as String? ?: return null
+    for (encoded in encodedDefines.split(",")) {
+        val decoded = String(Base64.getDecoder().decode(encoded))
+        val separator = decoded.indexOf("=")
+        if (separator == -1) {
+            continue
+        }
+
+        val key = decoded.substring(0, separator)
+        if (key == name) {
+            val value = decoded.substring(separator + 1)
+            return URLDecoder.decode(value, "UTF-8")
+        }
+    }
+    return null
+}
+
+val googleMapsApiKey = (
+    project.findProperty("GOOGLE_MAPS_API_KEY") as String?
+        ?: dartDefine("GOOGLE_MAPS_API_KEY")
+        ?: localProperties.getProperty("GOOGLE_MAPS_API_KEY")
+        ?: System.getenv("GOOGLE_MAPS_API_KEY")
+        ?: ""
+)
 
 android {
     namespace = "com.example.wanderjoy_flutter"
@@ -29,6 +65,7 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        manifestPlaceholders["googleMapsApiKey"] = googleMapsApiKey
     }
 
     buildTypes {

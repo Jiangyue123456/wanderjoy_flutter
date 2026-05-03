@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 
 import '../../shared/data/mock_data.dart';
 import '../../shared/models/app_models.dart';
@@ -32,18 +33,47 @@ class ExploreController extends ChangeNotifier {
   String profileBio = MockData.myBio;
   bool isListening = false;
   bool isGeneratingPlaces = false;
+  bool isSearchingPlaces = false;
+  bool isPlanningRoute = false;
   String? exploreError;
+  final List<Poi> searchResults = [];
+  final Set<String> loadingPlaceDetailIds = {};
   Poi? activePoi;
+  ExploreRoutePlan? routePlan;
+  String? routePlanningNotice;
+  String? locationStatus;
+  bool isNavigationActive = false;
   Offset userPosition = const Offset(0.40, 0.40);
   double? currentLocationLat = 51.544;
   double? currentLocationLng = -0.009;
   String currentLocationName = 'Stratford E20 1LZ London';
+  double? navigationOriginLat;
+  double? navigationOriginLng;
 
   Timer? _tripTimer;
+  StreamSubscription<Position>? _positionSubscription;
   final Random _random = Random();
   String? _profileSignature;
 
   List<Poi> get optimizedPois {
+    final orderedIds = routePlan?.orderedPlaceIds ?? const [];
+    if (orderedIds.isNotEmpty) {
+      final ordered = <Poi>[];
+      final usedIds = <String>{};
+      for (final id in orderedIds) {
+        final match = selectedPois.where((poi) => _matchesPoiId(poi, id));
+        if (match.isEmpty) {
+          continue;
+        }
+        final poi = match.first;
+        if (usedIds.add(poi.id)) {
+          ordered.add(poi);
+        }
+      }
+      ordered.addAll(selectedPois.where((poi) => !usedIds.contains(poi.id)));
+      return ordered;
+    }
+
     if (selectedPois.length <= 1) {
       return List<Poi>.from(selectedPois);
     }
@@ -77,6 +107,11 @@ class ExploreController extends ChangeNotifier {
   }
 
   double get totalDistanceKm {
+    final plannedDistance = routePlan?.totalDistanceKm ?? 0;
+    if (plannedDistance > 0) {
+      return plannedDistance;
+    }
+
     if (optimizedPois.length < 2) {
       return optimizedPois.length * 0.7;
     }
@@ -102,7 +137,26 @@ class ExploreController extends ChangeNotifier {
     return _haversineKm(originLat, originLng, poi.lat, poi.lng);
   }
 
+  int? travelMinutesFromCurrent(Poi poi) {
+    final distance = distanceFromCurrentKm(poi);
+    if (distance == null) {
+      return null;
+    }
+
+    final kmPerHour = switch (energy) {
+      EnergyLevel.low => 4.2,
+      EnergyLevel.medium => 4.8,
+      EnergyLevel.high => 5.4,
+    };
+    return max(1, (distance / kmPerHour * 60).round());
+  }
+
   int get estimatedMinutes {
+    final plannedMinutes = routePlan?.totalDurationMinutes ?? 0;
+    if (plannedMinutes > 0) {
+      return plannedMinutes;
+    }
+
     final base = switch (energy) {
       EnergyLevel.low => 24,
       EnergyLevel.medium => 18,
@@ -112,24 +166,72 @@ class ExploreController extends ChangeNotifier {
   }
 
   List<Poi> get filteredSearchResults {
-    final query = searchQuery.trim().toLowerCase();
-    if (query.isEmpty) {
-      return const [];
-    }
-
-    return MockData.pois
-        .where((poi) => poi.name.toLowerCase().contains(query))
+    return searchResults
         .where((poi) => !selectedPois.any((item) => item.id == poi.id))
         .toList();
   }
 
+  bool isLoadingPlaceDetails(Poi poi) {
+    return loadingPlaceDetailIds.contains(_poiDetailKey(poi));
+  }
+
+  Poi latestPoi(Poi poi) {
+    final selectedMatch = selectedPois.where((item) => _matchesPoiId(item, poi.id));
+    if (selectedMatch.isNotEmpty) {
+      return selectedMatch.first;
+    }
+    final searchMatch = searchResults.where((item) => _matchesPoiId(item, poi.id));
+    if (searchMatch.isNotEmpty) {
+      return searchMatch.first;
+    }
+    return poi;
+  }
+
+  Future<void> loadGooglePlaceDetails(Poi poi) async {
+    final key = _poiDetailKey(poi);
+    final current = latestPoi(poi);
+    if (key.isEmpty ||
+        current.openingHours.isNotEmpty ||
+        current.photoUrls.isNotEmpty ||
+        current.googleReviewSummaries.isNotEmpty ||
+        loadingPlaceDetailIds.contains(key)) {
+      return;
+    }
+
+    loadingPlaceDetailIds.add(key);
+    notifyListeners();
+    final detailed = await exploreAgentService.fetchGooglePlaceDetails(current);
+    _replacePoi(detailed);
+    loadingPlaceDetailIds.remove(key);
+    notifyListeners();
+  }
+
   void goTo(ExploreStep nextStep) {
     step = nextStep;
+    if (step == ExploreStep.route || step == ExploreStep.trip) {
+      startLocationUpdates();
+    }
     if (step == ExploreStep.trip) {
       _startTripSimulation();
     } else {
       _tripTimer?.cancel();
     }
+    notifyListeners();
+  }
+
+  void startNavigation() {
+    isNavigationActive = true;
+    navigationOriginLat = currentLocationLat;
+    navigationOriginLng = currentLocationLng;
+    step = ExploreStep.route;
+    startLocationUpdates();
+    notifyListeners();
+  }
+
+  void endNavigation() {
+    isNavigationActive = false;
+    navigationOriginLat = null;
+    navigationOriginLng = null;
     notifyListeners();
   }
 
@@ -289,6 +391,58 @@ class ExploreController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void _replacePoi(Poi poi) {
+    for (var index = 0; index < selectedPois.length; index++) {
+      if (_matchesPoiId(selectedPois[index], poi.id)) {
+        selectedPois[index] = poi;
+      }
+    }
+    for (var index = 0; index < searchResults.length; index++) {
+      if (_matchesPoiId(searchResults[index], poi.id)) {
+        searchResults[index] = poi;
+      }
+    }
+  }
+
+  String _poiDetailKey(Poi poi) {
+    if (poi.googlePlaceId.trim().isNotEmpty) {
+      return poi.googlePlaceId.trim();
+    }
+    return poi.id.trim();
+  }
+
+  Future<void> searchGooglePlaces() async {
+    final query = searchQuery.trim();
+    if (query.isEmpty || isSearchingPlaces) {
+      return;
+    }
+
+    isSearchingPlaces = true;
+    exploreError = null;
+    searchResults.clear();
+    notifyListeners();
+
+    try {
+      final results = await exploreAgentService.searchPlaces(
+        query: query,
+        currentLocationLat: currentLocationLat,
+        currentLocationLng: currentLocationLng,
+        currentLocationName: currentLocationName,
+      );
+      searchResults
+        ..clear()
+        ..addAll(results);
+      if (searchResults.isEmpty) {
+        exploreError = 'No matching Google Maps places found.';
+      }
+    } on Object catch (error) {
+      exploreError = error.toString();
+    } finally {
+      isSearchingPlaces = false;
+      notifyListeners();
+    }
+  }
+
   Future<void> generateInitialRoute() async {
     if (isGeneratingPlaces) {
       return;
@@ -338,6 +492,7 @@ class ExploreController extends ChangeNotifier {
       selectedPois
         ..clear()
         ..addAll(realPois);
+      routePlan = null;
       chatMessages.add(
         'AI: I found ${realPois.length} places. Preview them before building your route.',
       );
@@ -367,12 +522,17 @@ class ExploreController extends ChangeNotifier {
       return;
     }
     selectedPois.add(poi);
+    routePlan = null;
+    routePlanningNotice = null;
     searchQuery = '';
+    searchResults.clear();
     notifyListeners();
   }
 
   void removePoi(String id) {
     selectedPois.removeWhere((poi) => poi.id == id);
+    routePlan = null;
+    routePlanningNotice = null;
     notifyListeners();
   }
 
@@ -381,12 +541,147 @@ class ExploreController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> startLocationUpdates() async {
+    if (_positionSubscription != null) {
+      return;
+    }
+
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        locationStatus = 'Location services are off.';
+        notifyListeners();
+        return;
+      }
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        locationStatus = 'Location permission is needed for live distance.';
+        notifyListeners();
+        return;
+      }
+
+      final currentPosition = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
+      );
+      _applyPosition(currentPosition);
+
+      _positionSubscription = Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 10,
+        ),
+      ).listen(_applyPosition);
+    } on Object {
+      locationStatus = 'Live location is temporarily unavailable.';
+      notifyListeners();
+    }
+  }
+
+  Future<void> confirmPlacesAndPlanRoute() async {
+    if (selectedPois.isEmpty || isPlanningRoute) {
+      return;
+    }
+
+    isPlanningRoute = true;
+    exploreError = null;
+    routePlanningNotice = null;
+    notifyListeners();
+
+    try {
+      final directionsRoute = await exploreAgentService.planRouteWithDirectionsApi(
+        places: selectedPois,
+        travelMode: _travelModeForEnergy(),
+        currentLocationLat: currentLocationLat,
+        currentLocationLng: currentLocationLng,
+        currentLocationName: currentLocationName,
+      );
+      if (directionsRoute != null && _isUsableRoutePlan(directionsRoute)) {
+        routePlan = directionsRoute;
+        return;
+      }
+
+      final plannedRoute = await exploreAgentService.planRoute(
+        places: selectedPois,
+        travelMode: _travelModeForEnergy(),
+        currentLocationLat: currentLocationLat,
+        currentLocationLng: currentLocationLng,
+        currentLocationName: currentLocationName,
+      );
+      if (_isUsableRoutePlan(plannedRoute)) {
+        routePlan = plannedRoute;
+      } else {
+        routePlan = null;
+        routePlanningNotice =
+            'Google Maps route optimization is unavailable, so this is an estimated order. Tap the map button for live directions.';
+      }
+    } on Object catch (error) {
+      routePlanningNotice =
+          'Google Maps route optimization is unavailable, so this is an estimated order. Tap the map button for live directions.';
+      routePlan = null;
+    } finally {
+      isPlanningRoute = false;
+      step = ExploreStep.route;
+      notifyListeners();
+    }
+  }
+
+  String routeMapsUrl() {
+    final plannedUrl = routePlan?.mapsUrl.trim() ?? '';
+    if (plannedUrl.startsWith('http')) {
+      return plannedUrl;
+    }
+
+    final ordered = optimizedPois;
+    final origin = currentLocationName.trim().isNotEmpty
+        ? currentLocationName
+        : currentLocationLat != null && currentLocationLng != null
+        ? '$currentLocationLat,$currentLocationLng'
+        : '';
+    final destination = ordered.isEmpty ? origin : _poiMapsQuery(ordered.last);
+    final waypoints = ordered.length > 1
+        ? ordered.sublist(0, ordered.length - 1).map(_poiMapsQuery).join('|')
+        : '';
+
+    final buffer = StringBuffer('https://www.google.com/maps/dir/?api=1');
+    if (origin.isNotEmpty) {
+      buffer.write('&origin=${Uri.encodeComponent(origin)}');
+    }
+    if (destination.isNotEmpty) {
+      buffer.write('&destination=${Uri.encodeComponent(destination)}');
+    }
+    if (waypoints.isNotEmpty) {
+      buffer.write('&waypoints=${Uri.encodeComponent(waypoints)}');
+    }
+    buffer.write('&travelmode=${_travelModeForEnergy()}');
+    return buffer.toString();
+  }
+
   void finishAndReset() {
     _tripTimer?.cancel();
     step = ExploreStep.home;
     searchQuery = '';
     activePoi = null;
+    routePlan = null;
+    routePlanningNotice = null;
+    isNavigationActive = false;
+    navigationOriginLat = null;
+    navigationOriginLng = null;
     userPosition = const Offset(0.40, 0.40);
+    notifyListeners();
+  }
+
+  void _applyPosition(Position position) {
+    currentLocationLat = position.latitude;
+    currentLocationLng = position.longitude;
+    currentLocationName = 'Current location';
+    locationStatus = null;
     notifyListeners();
   }
 
@@ -420,6 +715,37 @@ class ExploreController extends ChangeNotifier {
   }
 
   double _degreesToRadians(double value) => value * pi / 180;
+
+  bool _matchesPoiId(Poi poi, String id) {
+    return poi.id == id ||
+        poi.googlePlaceId == id ||
+        poi.name.toLowerCase() == id.toLowerCase();
+  }
+
+  bool _isUsableRoutePlan(ExploreRoutePlan plan) {
+    final summary = plan.summary.toLowerCase();
+    final looksLikeFailure = summary.contains('unable') ||
+        summary.contains('not available') ||
+        summary.contains('invalid') ||
+        summary.contains('not enabled') ||
+        summary.contains('failed');
+    return !looksLikeFailure &&
+        plan.orderedPlaceIds.isNotEmpty &&
+        plan.totalDistanceKm > 0 &&
+        plan.totalDurationMinutes > 0;
+  }
+
+  String _travelModeForEnergy() {
+    return switch (energy) {
+      EnergyLevel.high => 'walking',
+      EnergyLevel.medium => 'walking',
+      EnergyLevel.low => 'transit',
+    };
+  }
+
+  String _poiMapsQuery(Poi poi) {
+    return '${poi.lat},${poi.lng}';
+  }
 
   String _readString(
     Map<String, dynamic>? data,
@@ -489,6 +815,7 @@ class ExploreController extends ChangeNotifier {
   @override
   void dispose() {
     _tripTimer?.cancel();
+    _positionSubscription?.cancel();
     super.dispose();
   }
 }

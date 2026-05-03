@@ -50,6 +50,12 @@ class Poi {
     this.mapsUri = '',
     this.placeType = '',
     this.matchScore = 0,
+    this.googleRating,
+    this.userRatingsTotal,
+    this.isOpenNow,
+    this.openingHours = const [],
+    this.photoUrls = const [],
+    this.googleReviewSummaries = const [],
   });
 
   final String id;
@@ -66,6 +72,59 @@ class Poi {
   final String mapsUri;
   final String placeType;
   final double matchScore;
+  final double? googleRating;
+  final int? userRatingsTotal;
+  final bool? isOpenNow;
+  final List<String> openingHours;
+  final List<String> photoUrls;
+  final List<String> googleReviewSummaries;
+
+  Poi copyWith({
+    String? id,
+    String? name,
+    PoiCategory? category,
+    String? description,
+    double? rating,
+    String? reason,
+    double? lat,
+    double? lng,
+    String? emoji,
+    String? hours,
+    String? googlePlaceId,
+    String? mapsUri,
+    String? placeType,
+    double? matchScore,
+    double? googleRating,
+    int? userRatingsTotal,
+    bool? isOpenNow,
+    List<String>? openingHours,
+    List<String>? photoUrls,
+    List<String>? googleReviewSummaries,
+  }) {
+    return Poi(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      category: category ?? this.category,
+      description: description ?? this.description,
+      rating: rating ?? this.rating,
+      reason: reason ?? this.reason,
+      lat: lat ?? this.lat,
+      lng: lng ?? this.lng,
+      emoji: emoji ?? this.emoji,
+      hours: hours ?? this.hours,
+      googlePlaceId: googlePlaceId ?? this.googlePlaceId,
+      mapsUri: mapsUri ?? this.mapsUri,
+      placeType: placeType ?? this.placeType,
+      matchScore: matchScore ?? this.matchScore,
+      googleRating: googleRating ?? this.googleRating,
+      userRatingsTotal: userRatingsTotal ?? this.userRatingsTotal,
+      isOpenNow: isOpenNow ?? this.isOpenNow,
+      openingHours: openingHours ?? this.openingHours,
+      photoUrls: photoUrls ?? this.photoUrls,
+      googleReviewSummaries:
+          googleReviewSummaries ?? this.googleReviewSummaries,
+    );
+  }
 }
 
 class MemoryEntry {

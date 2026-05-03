@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -6,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../app/auth/auth_service.dart';
 import '../../core/theme/app_colors.dart';
@@ -13,8 +15,11 @@ import '../../core/theme/app_spacing.dart';
 import '../../shared/models/app_models.dart';
 import '../../shared/widgets/dopamine_card.dart';
 import '../../shared/widgets/primary_button.dart';
+import 'explore_agent_service.dart';
 import 'explore_controller.dart';
 import 'voice_transcription_service.dart';
+
+const _googleMapsApiKey = String.fromEnvironment('GOOGLE_MAPS_API_KEY');
 
 class ExploreScreen extends StatefulWidget {
   const ExploreScreen({super.key});
@@ -263,6 +268,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 
   Widget _inputContent(BuildContext context, {required bool isProfileLoading}) {
+    final visibleError = _visibleExploreError();
     return ListView(
       key: const ValueKey('explore-input'),
       padding: const EdgeInsets.fromLTRB(
@@ -431,7 +437,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
           label: _controller.profileBio,
         ),
         const SizedBox(height: AppSpacing.xl),
-        if (_controller.exploreError != null) ...[
+        if (visibleError != null) ...[
           DopamineCard(
             padding: const EdgeInsets.all(14),
             child: Row(
@@ -440,7 +446,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    _controller.exploreError!,
+                    visibleError,
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                 ),
@@ -462,6 +468,27 @@ class _ExploreScreenState extends State<ExploreScreen> {
     );
   }
 
+  String? _visibleExploreError() {
+    final error = _controller.exploreError;
+    if (error == null || error.trim().isEmpty) {
+      return null;
+    }
+
+    final lower = error.toLowerCase();
+    final isTechnicalBackendError =
+        lower.contains('timeout') ||
+        lower.contains('future not completed') ||
+        lower.contains('explore agent request failed') ||
+        lower.contains('openai returned') ||
+        lower.contains('route planning failed') ||
+        lower.contains('missing openai_api_key');
+    if (isTechnicalBackendError) {
+      return null;
+    }
+
+    return error;
+  }
+
   Widget _preview(BuildContext context) {
     final results = _controller.filteredSearchResults;
     return ListView(
@@ -480,9 +507,23 @@ class _ExploreScreenState extends State<ExploreScreen> {
         const SizedBox(height: AppSpacing.lg),
         TextField(
           onChanged: _controller.setSearchQuery,
+          onSubmitted: (_) => _controller.searchGooglePlaces(),
           decoration: InputDecoration(
             hintText: 'Search and manually add a place...',
             prefixIcon: const Icon(Icons.search_rounded),
+            suffixIcon: _controller.isSearchingPlaces
+                ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                : IconButton(
+                    onPressed: _controller.searchGooglePlaces,
+                    icon: const Icon(Icons.arrow_forward_rounded),
+                  ),
             filled: true,
             fillColor: Colors.white,
             border: OutlineInputBorder(
@@ -491,9 +532,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
             ),
           ),
         ),
-        if (results.isNotEmpty) ...[
+        if (_controller.isSearchingPlaces || results.isNotEmpty) ...[
           const SizedBox(height: AppSpacing.lg),
-          const _MiniLabel('Search Results'),
+          const _MiniLabel('Google Maps Search Results'),
           const SizedBox(height: AppSpacing.sm),
           ...results.map(
             (poi) => _PoiRow(
@@ -533,10 +574,14 @@ class _ExploreScreenState extends State<ExploreScreen> {
         ),
         const SizedBox(height: AppSpacing.lg),
         PrimaryButton(
-          label: 'Confirm Places',
-          onPressed: _controller.selectedPois.isEmpty
+          label: _controller.isPlanningRoute
+              ? 'Planning fastest route...'
+              : 'Confirm Places',
+          onPressed: _controller.selectedPois.isEmpty || _controller.isPlanningRoute
               ? null
-              : () => _controller.goTo(ExploreStep.route),
+              : () {
+                  _controller.confirmPlacesAndPlanRoute();
+                },
         ),
       ],
     );
@@ -544,107 +589,144 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
   Widget _route(BuildContext context) {
     final pois = _controller.optimizedPois;
+    final routePlan = _controller.routePlan;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _controller.startLocationUpdates();
+      }
+    });
     return Stack(
       key: const ValueKey('explore-route'),
       children: [
         Positioned.fill(
-          child: Container(
-            color: AppColors.mapGrid,
-            child: Stack(
-              children: [
-                for (final entry in pois.asMap().entries)
-                  Positioned(
-                    top: 80 + (entry.key % 3) * 94,
-                    left: 30 + (entry.key % 4) * 78,
-                    child: _MapBadge(label: entry.value.emoji, index: entry.key + 1),
-                  ),
-                const Positioned.fill(
-                  child: Center(
-                    child: Icon(
-                      Icons.route_rounded,
-                      size: 120,
-                      color: Color(0x22FF6B6B),
+          child: _RouteMapBackground(
+            pois: pois,
+            routePlan: routePlan,
+            navigationActive: _controller.isNavigationActive,
+            routeOriginLat:
+                _controller.navigationOriginLat ?? _controller.currentLocationLat,
+            routeOriginLng:
+                _controller.navigationOriginLng ?? _controller.currentLocationLng,
+            currentLat: _controller.currentLocationLat,
+            currentLng: _controller.currentLocationLng,
+            onPoiTap: (poi) => _showPoiDetails(context, poi),
+          ),
+        ),
+        Positioned(
+          top: AppSpacing.lg,
+          left: AppSpacing.lg,
+          right: AppSpacing.lg,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  _SmallBadge(routePlan == null ? 'Route Preview' : 'Google Maps'),
+                  const Spacer(),
+                  FilledButton.tonalIcon(
+                    onPressed: _openRouteInMaps,
+                    icon: const Icon(Icons.map_rounded, size: 18),
+                    label: const Text('Open Maps'),
+                    style: FilledButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      backgroundColor: Colors.white.withValues(alpha: 0.94),
+                      foregroundColor: AppColors.ink,
                     ),
                   ),
-                ),
+                ],
+              ),
+              if (_controller.locationStatus != null) ...[
+                const SizedBox(height: 8),
+                _MapHint(message: _controller.locationStatus!),
               ],
-            ),
+            ],
           ),
         ),
         Positioned(
           left: AppSpacing.lg,
           right: AppSpacing.lg,
-          bottom: 44,
+          bottom: 24,
           child: DopamineCard(
+            padding: const EdgeInsets.all(16),
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
                     Expanded(
                       child: Text(
-                        'Generated Route',
+                        'Fastest Route',
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
                     ),
-                    _SmallBadge('Shortest Path'),
+                    Text(
+                      '${pois.length} stops  |  ${_controller.estimatedMinutes} mins',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
                   ],
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  '${pois.length} stops - ${_controller.totalDistanceKm.toStringAsFixed(1)} km - ${_controller.estimatedMinutes} mins',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
+                if (routePlan != null && routePlan.summary.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    routePlan.summary,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ],
                 const SizedBox(height: AppSpacing.md),
                 SizedBox(
-                  height: 78,
+                  height: 52,
                   child: ListView.separated(
                     scrollDirection: Axis.horizontal,
                     itemCount: pois.length,
-                    separatorBuilder: (_, _) => const SizedBox(width: 10),
-                    itemBuilder: (context, index) => Container(
-                      width: 160,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF8F8F8),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text('${index + 1}. ${pois[index].name}'),
-                          const SizedBox(height: 4),
-                          Text(
-                            pois[index].hours,
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
-                        ],
-                      ),
+                    separatorBuilder: (_, _) => const Icon(
+                      Icons.chevron_right_rounded,
+                      color: AppColors.muted,
+                    ),
+                    itemBuilder: (context, index) => _RouteStopChip(
+                      index: index + 1,
+                      name: pois[index].name,
+                      onTap: () => _showPoiDetails(context, pois[index]),
                     ),
                   ),
                 ),
                 const SizedBox(height: AppSpacing.md),
                 Row(
                   children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () =>
-                            _controller.goTo(ExploreStep.customize),
-                        icon: const Icon(Icons.edit_outlined),
-                        label: const Text('Edit'),
-                      ),
+                    IconButton.outlined(
+                      onPressed: () => _controller.goTo(ExploreStep.customize),
+                      icon: const Icon(Icons.edit_outlined),
+                      tooltip: 'Edit places',
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 10),
                     Expanded(
-                      flex: 2,
                       child: PrimaryButton(
-                        label: 'Start Navigation',
-                        onPressed: () => _controller.goTo(ExploreStep.trip),
+                        label: _controller.isNavigationActive
+                            ? 'Navigation Active'
+                            : 'Start Navigation',
+                        icon: Icons.navigation_rounded,
+                        onPressed: _controller.isNavigationActive
+                            ? null
+                            : _controller.startNavigation,
                       ),
                     ),
                   ],
                 ),
+                if (_controller.isNavigationActive) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _controller.endNavigation,
+                      icon: const Icon(Icons.stop_circle_outlined),
+                      label: const Text('End Navigation'),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -794,7 +876,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 
   void _showPoiDetails(BuildContext context, Poi poi) {
-    final distanceKm = _controller.distanceFromCurrentKm(poi);
+    _controller.loadGooglePlaceDetails(poi);
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -803,16 +885,31 @@ class _ExploreScreenState extends State<ExploreScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (context) => _PoiDetailsSheet(
-        poi: poi,
-        distanceKm: distanceKm,
-        onOpenMaps: () => _openPoiInMaps(poi),
+      builder: (context) => ListenableBuilder(
+        listenable: _controller,
+        builder: (context, _) {
+          final livePoi = _controller.latestPoi(poi);
+          return _PoiDetailsSheet(
+            poi: livePoi,
+            distanceKm: _controller.distanceFromCurrentKm(livePoi),
+            travelMinutes: _controller.travelMinutesFromCurrent(livePoi),
+            isLoadingLiveDetails: _controller.isLoadingPlaceDetails(livePoi),
+            onOpenMaps: () => _openPoiInMaps(livePoi),
+          );
+        },
       ),
     );
   }
 
   Future<void> _openPoiInMaps(Poi poi) async {
     final uri = Uri.parse(_googleMapsUrlFor(poi));
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      await launchUrl(uri, mode: LaunchMode.platformDefault);
+    }
+  }
+
+  Future<void> _openRouteInMaps() async {
+    final uri = Uri.parse(_controller.routeMapsUrl());
     if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
       await launchUrl(uri, mode: LaunchMode.platformDefault);
     }
@@ -1121,11 +1218,15 @@ class _PoiDetailsSheet extends StatelessWidget {
   const _PoiDetailsSheet({
     required this.poi,
     required this.distanceKm,
+    required this.travelMinutes,
+    required this.isLoadingLiveDetails,
     required this.onOpenMaps,
   });
 
   final Poi poi;
   final double? distanceKm;
+  final int? travelMinutes;
+  final bool isLoadingLiveDetails;
   final VoidCallback onOpenMaps;
 
   @override
@@ -1133,14 +1234,45 @@ class _PoiDetailsSheet extends StatelessWidget {
     final matchPercent = poi.matchScore > 0
         ? '${(poi.matchScore * 100).round()}%'
         : '${(poi.rating / 5 * 100).round()}%';
+    final rating = poi.googleRating ?? poi.rating;
 
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.86,
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (poi.photoUrls.isNotEmpty) ...[
+              SizedBox(
+                height: 128,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: poi.photoUrls.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 10),
+                  itemBuilder: (context, index) => ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: Image.network(
+                      poi.photoUrls[index],
+                      width: 188,
+                      height: 128,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Container(
+                        width: 188,
+                        height: 128,
+                        color: AppColors.mapGrid,
+                        child: const Icon(Icons.image_not_supported_outlined),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+            ],
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -1177,16 +1309,32 @@ class _PoiDetailsSheet extends StatelessWidget {
                   icon: Icons.auto_awesome_rounded,
                   label: 'Match $matchPercent',
                 ),
+                _InlineInfo(
+                  icon: Icons.star_rounded,
+                  label: poi.userRatingsTotal == null
+                      ? rating.toStringAsFixed(1)
+                      : '${rating.toStringAsFixed(1)} (${poi.userRatingsTotal})',
+                ),
                 if (distanceKm != null)
                   _InlineInfo(
                     icon: Icons.near_me_outlined,
                     label: '${distanceKm!.toStringAsFixed(1)} km away',
                   ),
-                _InlineInfo(
-                  icon: Icons.location_on_outlined,
-                  label:
-                      '${poi.lat.toStringAsFixed(4)}, ${poi.lng.toStringAsFixed(4)}',
-                ),
+                if (travelMinutes != null)
+                  _InlineInfo(
+                    icon: Icons.directions_walk_rounded,
+                    label: '$travelMinutes min',
+                  ),
+                if (poi.googlePlaceId.isNotEmpty)
+                  const _InlineInfo(
+                    icon: Icons.location_on_outlined,
+                    label: 'Verified place',
+                  ),
+                if (poi.isOpenNow != null)
+                  _InlineInfo(
+                    icon: Icons.schedule_rounded,
+                    label: poi.isOpenNow! ? 'Open now' : 'Closed now',
+                  ),
               ],
             ),
             const SizedBox(height: AppSpacing.lg),
@@ -1194,10 +1342,9 @@ class _PoiDetailsSheet extends StatelessWidget {
             const SizedBox(height: AppSpacing.md),
             _DetailBlock(title: 'Suggested activity', body: poi.description),
             const SizedBox(height: AppSpacing.md),
-            const _DetailBlock(
-              title: 'Live details',
-              body:
-                  'Open Google Maps for current hours, ratings, reviews, photos, and directions.',
+            _GoogleLiveDetails(
+              poi: poi,
+              isLoading: isLoadingLiveDetails,
             ),
             const SizedBox(height: AppSpacing.lg),
             PrimaryButton(
@@ -1206,8 +1353,83 @@ class _PoiDetailsSheet extends StatelessWidget {
               onPressed: onOpenMaps,
             ),
           ],
+          ),
         ),
       ),
+    );
+  }
+}
+
+class _GoogleLiveDetails extends StatelessWidget {
+  const _GoogleLiveDetails({
+    required this.poi,
+    required this.isLoading,
+  });
+
+  final Poi poi;
+  final bool isLoading;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasGoogleData =
+        poi.openingHours.isNotEmpty ||
+        poi.googleReviewSummaries.isNotEmpty ||
+        poi.photoUrls.isNotEmpty ||
+        poi.googleRating != null ||
+        poi.isOpenNow != null;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('LIVE DETAILS', style: Theme.of(context).textTheme.labelSmall),
+        const SizedBox(height: 8),
+        if (isLoading)
+          const Row(
+            children: [
+              SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              SizedBox(width: 10),
+              Text('Loading Google Maps details...'),
+            ],
+          )
+        else if (!hasGoogleData)
+          Text(
+            'Google live details were not returned for this place. Open Google Maps for the full listing.',
+            style: Theme.of(context).textTheme.bodyMedium,
+          )
+        else ...[
+          if (poi.openingHours.isNotEmpty) ...[
+            ...poi.openingHours.take(7).map(
+                  (line) => Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text(line, style: Theme.of(context).textTheme.bodyMedium),
+                  ),
+                ),
+            const SizedBox(height: AppSpacing.sm),
+          ],
+          if (poi.googleReviewSummaries.isNotEmpty) ...[
+            Text(
+              'Reviews',
+              style: Theme.of(context).textTheme.labelSmall,
+            ),
+            const SizedBox(height: 6),
+            ...poi.googleReviewSummaries.map(
+              (review) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  review,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ],
     );
   }
 }
@@ -1228,6 +1450,1093 @@ class _DetailBlock extends StatelessWidget {
         Text(body, style: Theme.of(context).textTheme.bodyMedium),
       ],
     );
+  }
+}
+
+class _RouteMapBackground extends StatelessWidget {
+  const _RouteMapBackground({
+    required this.pois,
+    required this.routePlan,
+    required this.navigationActive,
+    required this.routeOriginLat,
+    required this.routeOriginLng,
+    required this.currentLat,
+    required this.currentLng,
+    required this.onPoiTap,
+  });
+
+  final List<Poi> pois;
+  final ExploreRoutePlan? routePlan;
+  final bool navigationActive;
+  final double? routeOriginLat;
+  final double? routeOriginLng;
+  final double? currentLat;
+  final double? currentLng;
+  final ValueChanged<Poi> onPoiTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final html = _mapHtml();
+    if (html != null && (Platform.isAndroid || Platform.isIOS)) {
+      return _EmbeddedRouteMap(
+        html: html,
+        onMarkerTap: (id) {
+          final matches = pois.where((poi) => poi.id == id);
+          if (matches.isNotEmpty) {
+            onPoiTap(matches.first);
+          }
+        },
+      );
+    }
+
+    return _EstimatedRouteMap(
+      pois: pois,
+      routePlan: routePlan,
+      navigationActive: navigationActive,
+      currentLat: currentLat,
+      currentLng: currentLng,
+    );
+  }
+
+  String? _mapHtml() {
+    final routePois = pois.where((poi) => poi.lat != 0 || poi.lng != 0).toList();
+    if (routePois.isEmpty || _googleMapsApiKey.trim().isEmpty) {
+      return null;
+    }
+
+    final origin = routeOriginLat != null && routeOriginLng != null
+        ? {'lat': routeOriginLat, 'lng': routeOriginLng, 'label': 'Start'}
+        : {
+            'lat': routePois.first.lat,
+            'lng': routePois.first.lng,
+            'label': routePois.first.name,
+          };
+    final liveLocation = currentLat != null && currentLng != null
+        ? {'lat': currentLat, 'lng': currentLng}
+        : null;
+    final destination = {
+      'lat': routePois.last.lat,
+      'lng': routePois.last.lng,
+      'label': routePois.last.name,
+    };
+    final waypointPois = currentLat != null && currentLng != null
+        ? routePois.sublist(0, routePois.length - 1)
+        : routePois.length > 2
+        ? routePois.sublist(1, routePois.length - 1)
+        : <Poi>[];
+    final stops = routePois.asMap().entries.map((entry) {
+      final poi = entry.value;
+      return {
+        'id': poi.id,
+        'index': entry.key + 1,
+        'name': poi.name,
+        'lat': poi.lat,
+        'lng': poi.lng,
+      };
+    }).toList();
+    final waypoints = waypointPois
+        .map((poi) => {'lat': poi.lat, 'lng': poi.lng})
+        .toList();
+
+    final html = '''
+<!doctype html>
+<html>
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+    <style>
+      html, body, #map {
+        height: 100%;
+        width: 100%;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background: #eaf1ee;
+        font-family: Arial, sans-serif;
+      }
+      .poi-label {
+        background: white;
+        border: 1px solid #eeeeee;
+        border-radius: 16px;
+        box-shadow: 0 8px 18px rgba(0,0,0,.18);
+        color: #2f2f2f;
+        font-size: 13px;
+        font-weight: 800;
+        max-width: 150px;
+        overflow: hidden;
+        padding: 7px 10px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .poi-label b {
+        background: #ff6b6b;
+        border-radius: 999px;
+        color: white;
+        display: inline-block;
+        height: 24px;
+        line-height: 24px;
+        margin-right: 6px;
+        text-align: center;
+        width: 24px;
+      }
+      .you-label {
+        background: #1a73e8;
+        border: 3px solid white;
+        border-radius: 999px;
+        box-shadow: 0 6px 14px rgba(0,0,0,.20);
+        color: white;
+        font-size: 12px;
+        font-weight: 900;
+        padding: 5px 9px;
+      }
+    </style>
+    <script src="https://maps.googleapis.com/maps/api/js?key=$_googleMapsApiKey&callback=initMap" async defer></script>
+    <script>
+      const origin = ${jsonEncode(origin)};
+      const destination = ${jsonEncode(destination)};
+      const waypoints = ${jsonEncode(waypoints)};
+      const stops = ${jsonEncode(stops)};
+      const liveLocation = ${jsonEncode(liveLocation)};
+      const navigationActive = $navigationActive;
+
+      function initMap() {
+        const map = new google.maps.Map(document.getElementById('map'), {
+          center: { lat: origin.lat, lng: origin.lng },
+          zoom: 14,
+          mapTypeControl: false,
+          fullscreenControl: false,
+          streetViewControl: false,
+          clickableIcons: false
+        });
+
+        const directionsService = new google.maps.DirectionsService();
+        directionsService.route({
+          origin: { lat: origin.lat, lng: origin.lng },
+          destination: { lat: destination.lat, lng: destination.lng },
+          waypoints: waypoints.map((point) => ({
+            location: { lat: point.lat, lng: point.lng },
+            stopover: true
+          })),
+          travelMode: google.maps.TravelMode.WALKING
+        }, (result, status) => {
+          if (status === 'OK') {
+            drawRoutePreview(map, result.routes[0]);
+            fitRoute(map, result.routes[0]);
+          }
+        });
+
+        if (navigationActive && liveLocation) {
+          createMapLabel(map, liveLocation, '<div class="you-label">You</div>');
+        } else {
+          createMapLabel(map, { lat: origin.lat, lng: origin.lng }, '<div class="you-label">You</div>');
+        }
+
+        stops.forEach((stop) => {
+          createMapLabel(
+            map,
+            { lat: stop.lat, lng: stop.lng },
+            '<div class="poi-label"><b>' + stop.index + '</b>' + escapeHtml(stop.name) + '</div>',
+            () => {
+            if (window.WanderJoy) {
+              window.WanderJoy.postMessage(stop.id);
+            }
+            }
+          );
+        });
+      }
+
+      function drawRoutePreview(map, route) {
+        const path = route.overview_path || [];
+        if (!path.length) {
+          return;
+        }
+
+        const splitIndex = navigationActive && liveLocation
+          ? nearestPathIndex(path, liveLocation)
+          : 0;
+        const liveLatLng = liveLocation
+          ? new google.maps.LatLng(liveLocation.lat, liveLocation.lng)
+          : null;
+        const completedPath = navigationActive && liveLatLng && splitIndex > 0
+          ? path.slice(0, splitIndex + 1).concat([liveLatLng])
+          : [];
+        const remainingPath = navigationActive && liveLatLng
+          ? [liveLatLng].concat(path.slice(Math.max(1, splitIndex)))
+          : path;
+
+        if (completedPath.length > 1) {
+          new google.maps.Polyline({
+            path: completedPath,
+            map,
+            clickable: false,
+            geodesic: false,
+            strokeColor: '#9ca3af',
+            strokeOpacity: 0.86,
+            strokeWeight: 6,
+            zIndex: 18
+          });
+        }
+
+        new google.maps.Polyline({
+          path: remainingPath,
+          map,
+          clickable: false,
+          geodesic: false,
+          strokeColor: '#ffffff',
+          strokeOpacity: 0.94,
+          strokeWeight: 9,
+          zIndex: 20
+        });
+
+        new google.maps.Polyline({
+          path: remainingPath,
+          map,
+          clickable: false,
+          geodesic: false,
+          strokeColor: '#2563eb',
+          strokeOpacity: 0.92,
+          strokeWeight: 5,
+          zIndex: 21
+        });
+      }
+
+      function nearestPathIndex(path, point) {
+        let bestIndex = 0;
+        let bestDistance = Number.POSITIVE_INFINITY;
+        path.forEach((latLng, index) => {
+          const dLat = latLng.lat() - point.lat;
+          const dLng = latLng.lng() - point.lng;
+          const distance = dLat * dLat + dLng * dLng;
+          if (distance < bestDistance) {
+            bestDistance = distance;
+            bestIndex = index;
+          }
+        });
+        return bestIndex;
+      }
+
+      function fitRoute(map, route) {
+        const bounds = route.bounds || new google.maps.LatLngBounds();
+        stops.forEach((stop) => bounds.extend({ lat: stop.lat, lng: stop.lng }));
+        bounds.extend({ lat: origin.lat, lng: origin.lng });
+        map.fitBounds(bounds, {
+          top: 92,
+          right: 28,
+          bottom: 260,
+          left: 28
+        });
+      }
+
+      function createMapLabel(map, position, html, onClick) {
+        class LabelOverlay extends google.maps.OverlayView {
+          constructor() {
+            super();
+            this.position = new google.maps.LatLng(position.lat, position.lng);
+            this.div = null;
+          }
+
+          onAdd() {
+            this.div = document.createElement('div');
+            this.div.style.position = 'absolute';
+            this.div.style.transform = 'translate(-50%, -100%)';
+            this.div.style.cursor = onClick ? 'pointer' : 'default';
+            this.div.innerHTML = html;
+            if (onClick) {
+              this.div.addEventListener('click', onClick);
+            }
+            this.getPanes().overlayMouseTarget.appendChild(this.div);
+          }
+
+          draw() {
+            const projection = this.getProjection();
+            const point = projection.fromLatLngToDivPixel(this.position);
+            if (point && this.div) {
+              this.div.style.left = point.x + 'px';
+              this.div.style.top = point.y + 'px';
+            }
+          }
+
+          onRemove() {
+            if (this.div) {
+              this.div.remove();
+              this.div = null;
+            }
+          }
+        }
+
+        new LabelOverlay().setMap(map);
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;');
+      }
+    </script>
+  </head>
+  <body>
+    <div id="map"></div>
+  </body>
+</html>
+''';
+    return html;
+  }
+}
+
+class _EmbeddedRouteMap extends StatefulWidget {
+  const _EmbeddedRouteMap({
+    required this.html,
+    required this.onMarkerTap,
+  });
+
+  final String html;
+  final ValueChanged<String> onMarkerTap;
+
+  @override
+  State<_EmbeddedRouteMap> createState() => _EmbeddedRouteMapState();
+}
+
+class _EmbeddedRouteMapState extends State<_EmbeddedRouteMap> {
+  late final WebViewController _webViewController;
+
+  @override
+  void initState() {
+    super.initState();
+    _webViewController = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(const Color(0xFFEAF1EE))
+      ..addJavaScriptChannel(
+        'WanderJoy',
+        onMessageReceived: (message) => widget.onMarkerTap(message.message),
+      )
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onNavigationRequest: (request) {
+            final uri = Uri.tryParse(request.url);
+            final scheme = uri?.scheme.toLowerCase();
+            if (scheme == 'http' || scheme == 'https') {
+              return NavigationDecision.navigate;
+            }
+            return NavigationDecision.prevent;
+          },
+        ),
+      )
+      ..loadHtmlString(widget.html, baseUrl: 'https://www.google.com');
+  }
+
+  @override
+  void didUpdateWidget(covariant _EmbeddedRouteMap oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.html != widget.html) {
+      _webViewController.loadHtmlString(
+        widget.html,
+        baseUrl: 'https://www.google.com',
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return WebViewWidget(controller: _webViewController);
+  }
+}
+
+class _EstimatedRouteMap extends StatelessWidget {
+  const _EstimatedRouteMap({
+    required this.pois,
+    required this.routePlan,
+    required this.navigationActive,
+    required this.currentLat,
+    required this.currentLng,
+  });
+
+  final List<Poi> pois;
+  final ExploreRoutePlan? routePlan;
+  final bool navigationActive;
+  final double? currentLat;
+  final double? currentLng;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(color: Color(0xFFEAF1EE)),
+      child: CustomPaint(
+        painter: _RouteMapPainter(
+          pois: pois,
+          routePlan: routePlan,
+          navigationActive: navigationActive,
+          currentLat: currentLat,
+          currentLng: currentLng,
+        ),
+      ),
+    );
+  }
+}
+
+class _RouteStopChip extends StatelessWidget {
+  const _RouteStopChip({
+    required this.index,
+    required this.name,
+    this.onTap,
+  });
+
+  final int index;
+  final String name;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 138,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.90),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 13,
+              backgroundColor: AppColors.primary,
+              child: Text(
+                '$index',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RouteStopOverlay extends StatelessWidget {
+  const _RouteStopOverlay({
+    required this.pois,
+    required this.controller,
+    required this.onTap,
+  });
+
+  final List<Poi> pois;
+  final ExploreController controller;
+  final ValueChanged<Poi> onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    if (pois.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return SizedBox(
+      height: 76,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: pois.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final poi = pois[index];
+          final distance = controller.distanceFromCurrentKm(poi);
+          final minutes = controller.travelMinutesFromCurrent(poi);
+          return GestureDetector(
+            onTap: () => onTap(poi),
+            child: Container(
+              width: 154,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.94),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppColors.border),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.08),
+                    blurRadius: 14,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 15,
+                    backgroundColor: AppColors.primary,
+                    child: Text(
+                      '${index + 1}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          poi.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          distance == null
+                              ? 'Tap for details'
+                              : '${distance.toStringAsFixed(1)} km'
+                                  '${minutes == null ? '' : ' | $minutes min'}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.labelSmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _RouteMapMarkersOverlay extends StatelessWidget {
+  const _RouteMapMarkersOverlay({
+    required this.pois,
+    required this.currentLat,
+    required this.currentLng,
+    required this.controller,
+    required this.onPoiTap,
+  });
+
+  final List<Poi> pois;
+  final double? currentLat;
+  final double? currentLng;
+  final ExploreController controller;
+  final ValueChanged<Poi> onPoiTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final validPois = pois.where((poi) => poi.lat != 0 || poi.lng != 0).toList();
+    if (validPois.isEmpty && (currentLat == null || currentLng == null)) {
+      return const SizedBox.shrink();
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = Size(constraints.maxWidth, constraints.maxHeight);
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            if (currentLat != null && currentLng != null)
+              _positionedMarker(
+                size: size,
+                lat: currentLat!,
+                lng: currentLng!,
+                width: 76,
+                height: 44,
+                child: const _CurrentLocationMarker(),
+              ),
+            for (final entry in pois.asMap().entries)
+              if (entry.value.lat != 0 || entry.value.lng != 0)
+                _positionedMarker(
+                  size: size,
+                  lat: entry.value.lat,
+                  lng: entry.value.lng,
+                  width: 164,
+                  height: 64,
+                  child: _PoiMapMarker(
+                    index: entry.key + 1,
+                    poi: entry.value,
+                    distanceKm: controller.distanceFromCurrentKm(entry.value),
+                    minutes: controller.travelMinutesFromCurrent(entry.value),
+                    onTap: () => onPoiTap(entry.value),
+                  ),
+                ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _positionedMarker({
+    required Size size,
+    required double lat,
+    required double lng,
+    required double width,
+    required double height,
+    required Widget child,
+  }) {
+    final point = _project(lat, lng, size);
+    return Positioned(
+      left: (point.dx - width / 2).clamp(8.0, size.width - width - 8),
+      top: (point.dy - height).clamp(96.0, size.height - 330),
+      width: width,
+      height: height,
+      child: child,
+    );
+  }
+
+  Offset _project(double lat, double lng, Size size) {
+    final validPois = pois.where((poi) => poi.lat != 0 || poi.lng != 0).toList();
+    final lats = [
+      if (currentLat != null) currentLat!,
+      ...validPois.map((poi) => poi.lat),
+    ];
+    final lngs = [
+      if (currentLng != null) currentLng!,
+      ...validPois.map((poi) => poi.lng),
+    ];
+    if (lats.isEmpty || lngs.isEmpty) {
+      return Offset(size.width / 2, size.height / 2);
+    }
+
+    final minLat = lats.reduce((a, b) => a < b ? a : b);
+    final maxLat = lats.reduce((a, b) => a > b ? a : b);
+    final minLng = lngs.reduce((a, b) => a < b ? a : b);
+    final maxLng = lngs.reduce((a, b) => a > b ? a : b);
+    final latSpan = (maxLat - minLat).abs() < 0.0001 ? 0.01 : maxLat - minLat;
+    final lngSpan = (maxLng - minLng).abs() < 0.0001 ? 0.01 : maxLng - minLng;
+    final x = ((lng - minLng) / lngSpan).clamp(0.16, 0.84) * size.width;
+    final y = (1 - ((lat - minLat) / latSpan).clamp(0.18, 0.70)) * size.height;
+    return Offset(x, y);
+  }
+}
+
+class _PoiMapMarker extends StatelessWidget {
+  const _PoiMapMarker({
+    required this.index,
+    required this.poi,
+    required this.distanceKm,
+    required this.minutes,
+    required this.onTap,
+  });
+
+  final int index;
+  final Poi poi;
+  final double? distanceKm;
+  final int? minutes;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.96),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.border),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.16),
+                  blurRadius: 16,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 15,
+                  backgroundColor: AppColors.primary,
+                  child: Text(
+                    '$index',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        poi.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      if (distanceKm != null)
+                        Text(
+                          '${distanceKm!.toStringAsFixed(1)} km'
+                          '${minutes == null ? '' : ' | $minutes min'}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.labelSmall,
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          CustomPaint(
+            size: const Size(18, 10),
+            painter: _MarkerPointerPainter(color: Colors.white),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CurrentLocationMarker extends StatelessWidget {
+  const _CurrentLocationMarker();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+          decoration: BoxDecoration(
+            color: Colors.blue,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: Colors.white, width: 3),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.18),
+                blurRadius: 12,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: const Text(
+            'You',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+        CustomPaint(
+          size: const Size(16, 9),
+          painter: _MarkerPointerPainter(color: Colors.blue),
+        ),
+      ],
+    );
+  }
+}
+
+class _MarkerPointerPainter extends CustomPainter {
+  const _MarkerPointerPainter({required this.color});
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = Path()
+      ..moveTo(0, 0)
+      ..lineTo(size.width / 2, size.height)
+      ..lineTo(size.width, 0)
+      ..close();
+    canvas.drawPath(path, Paint()..color = color);
+  }
+
+  @override
+  bool shouldRepaint(covariant _MarkerPointerPainter oldDelegate) {
+    return oldDelegate.color != color;
+  }
+}
+
+class _MapHint extends StatelessWidget {
+  const _MapHint({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.94),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Text(
+        message,
+        style: Theme.of(context).textTheme.labelSmall,
+      ),
+    );
+  }
+}
+
+class _RouteMapPainter extends CustomPainter {
+  const _RouteMapPainter({
+    required this.pois,
+    required this.routePlan,
+    required this.navigationActive,
+    required this.currentLat,
+    required this.currentLng,
+  });
+
+  final List<Poi> pois;
+  final ExploreRoutePlan? routePlan;
+  final bool navigationActive;
+  final double? currentLat;
+  final double? currentLng;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final points = _routePoints(size);
+
+    final gridPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.75)
+      ..strokeWidth = 1;
+    for (var x = 0.0; x < size.width; x += 42) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), gridPaint);
+    }
+    for (var y = 0.0; y < size.height; y += 42) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
+    }
+
+    if (points.length < 2) {
+      return;
+    }
+
+    final routePaint = Paint()
+      ..color = AppColors.primary.withValues(alpha: 0.72)
+      ..strokeWidth = 5
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+    final path = Path()..moveTo(points.first.dx, points.first.dy);
+    for (final point in points.skip(1)) {
+      path.lineTo(point.dx, point.dy);
+    }
+    canvas.drawPath(path, routePaint);
+
+    final originPaint = Paint()..color = Colors.blue;
+    canvas.drawCircle(points.first, 8, originPaint);
+    canvas.drawCircle(
+      points.first,
+      13,
+      Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 4,
+    );
+
+    final stopPaint = Paint()..color = AppColors.primary;
+    for (final point in points.skip(1)) {
+      canvas.drawCircle(point, 7, stopPaint);
+      canvas.drawCircle(
+        point,
+        11,
+        Paint()
+          ..color = Colors.white
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3,
+      );
+    }
+  }
+
+  Offset _project(double lat, double lng, Size size) {
+    final validPois = pois.where((poi) => poi.lat != 0 || poi.lng != 0).toList();
+    final lats = [
+      if (currentLat != null) currentLat!,
+      ...validPois.map((poi) => poi.lat),
+    ];
+    final lngs = [
+      if (currentLng != null) currentLng!,
+      ...validPois.map((poi) => poi.lng),
+    ];
+    if (lats.isEmpty || lngs.isEmpty) {
+      return Offset(size.width / 2, size.height / 2);
+    }
+
+    final minLat = lats.reduce((a, b) => a < b ? a : b);
+    final maxLat = lats.reduce((a, b) => a > b ? a : b);
+    final minLng = lngs.reduce((a, b) => a < b ? a : b);
+    final maxLng = lngs.reduce((a, b) => a > b ? a : b);
+    final latSpan = (maxLat - minLat).abs() < 0.0001 ? 0.01 : maxLat - minLat;
+    final lngSpan = (maxLng - minLng).abs() < 0.0001 ? 0.01 : maxLng - minLng;
+    final x = ((lng - minLng) / lngSpan).clamp(0.08, 0.92) * size.width;
+    final y = (1 - ((lat - minLat) / latSpan).clamp(0.08, 0.92)) * size.height;
+    return Offset(x, y);
+  }
+
+  List<Offset> _routePoints(Size size) {
+    final polyline = routePlan?.polylinePoints ?? const [];
+    if (polyline.isNotEmpty) {
+      return polyline.map((point) => _project(point.lat, point.lng, size)).toList();
+    }
+
+    return [
+      if (currentLat != null && currentLng != null)
+        _project(currentLat!, currentLng!, size),
+      ...pois.map((poi) => _project(poi.lat, poi.lng, size)),
+    ];
+  }
+
+  @override
+  bool shouldRepaint(covariant _RouteMapPainter oldDelegate) {
+    return oldDelegate.pois != pois ||
+        oldDelegate.routePlan != routePlan ||
+        oldDelegate.currentLat != currentLat ||
+        oldDelegate.currentLng != currentLng;
+  }
+}
+
+class _RouteOverlayPainter extends CustomPainter {
+  const _RouteOverlayPainter({
+    required this.pois,
+    required this.routePlan,
+    required this.currentLat,
+    required this.currentLng,
+  });
+
+  final List<Poi> pois;
+  final ExploreRoutePlan? routePlan;
+  final double? currentLat;
+  final double? currentLng;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final points = _routePoints(size);
+
+    if (points.length >= 2) {
+      final routePaint = Paint()
+        ..color = AppColors.primary.withValues(alpha: 0.82)
+        ..strokeWidth = 5
+        ..strokeCap = StrokeCap.round
+        ..style = PaintingStyle.stroke;
+      final path = Path()..moveTo(points.first.dx, points.first.dy);
+      for (final point in points.skip(1)) {
+        path.lineTo(point.dx, point.dy);
+      }
+      canvas.drawPath(path, routePaint);
+    }
+
+    if (points.isNotEmpty) {
+      canvas.drawCircle(
+        points.first,
+        9,
+        Paint()..color = Colors.blue,
+      );
+      canvas.drawCircle(
+        points.first,
+        14,
+        Paint()
+          ..color = Colors.white
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 4,
+      );
+    }
+
+    for (var index = 0; index < pois.length; index++) {
+      final poi = pois[index];
+      if (poi.lat == 0 && poi.lng == 0) {
+        continue;
+      }
+      final point = _project(poi.lat, poi.lng, size);
+      canvas.drawCircle(point, 16, Paint()..color = AppColors.primary);
+      canvas.drawCircle(
+        point,
+        19,
+        Paint()
+          ..color = Colors.white
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 4,
+      );
+      final label = TextPainter(
+        text: TextSpan(
+          text: '${index + 1}',
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 12,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      label.paint(
+        canvas,
+        Offset(point.dx - label.width / 2, point.dy - label.height / 2),
+      );
+    }
+  }
+
+  Offset _project(double lat, double lng, Size size) {
+    final validPois = pois.where((poi) => poi.lat != 0 || poi.lng != 0).toList();
+    final lats = [
+      if (currentLat != null) currentLat!,
+      ...validPois.map((poi) => poi.lat),
+    ];
+    final lngs = [
+      if (currentLng != null) currentLng!,
+      ...validPois.map((poi) => poi.lng),
+    ];
+    if (lats.isEmpty || lngs.isEmpty) {
+      return Offset(size.width / 2, size.height / 2);
+    }
+
+    final minLat = lats.reduce((a, b) => a < b ? a : b);
+    final maxLat = lats.reduce((a, b) => a > b ? a : b);
+    final minLng = lngs.reduce((a, b) => a < b ? a : b);
+    final maxLng = lngs.reduce((a, b) => a > b ? a : b);
+    final latSpan = (maxLat - minLat).abs() < 0.0001 ? 0.01 : maxLat - minLat;
+    final lngSpan = (maxLng - minLng).abs() < 0.0001 ? 0.01 : maxLng - minLng;
+    final x = ((lng - minLng) / lngSpan).clamp(0.08, 0.92) * size.width;
+    final y = (1 - ((lat - minLat) / latSpan).clamp(0.12, 0.78)) * size.height;
+    return Offset(x, y);
+  }
+
+  List<Offset> _routePoints(Size size) {
+    final polyline = routePlan?.polylinePoints ?? const [];
+    if (polyline.isNotEmpty) {
+      return polyline.map((point) => _project(point.lat, point.lng, size)).toList();
+    }
+
+    return [
+      if (currentLat != null && currentLng != null)
+        _project(currentLat!, currentLng!, size),
+      ...pois
+          .where((poi) => poi.lat != 0 || poi.lng != 0)
+          .map((poi) => _project(poi.lat, poi.lng, size)),
+    ];
+  }
+
+  @override
+  bool shouldRepaint(covariant _RouteOverlayPainter oldDelegate) {
+    return oldDelegate.pois != pois ||
+        oldDelegate.routePlan != routePlan ||
+        oldDelegate.currentLat != currentLat ||
+        oldDelegate.currentLng != currentLng;
   }
 }
 
