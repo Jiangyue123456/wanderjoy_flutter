@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
-import '../../shared/data/mock_data.dart';
 import '../../shared/models/app_models.dart';
 import '../../shared/widgets/dopamine_card.dart';
 import '../../shared/widgets/primary_button.dart';
 import 'social_controller.dart';
 
 class SocialScreen extends StatefulWidget {
-  const SocialScreen({super.key});
+  const SocialScreen({super.key, this.onStartExplore});
+
+  final VoidCallback? onStartExplore;
 
   @override
   State<SocialScreen> createState() => _SocialScreenState();
@@ -28,6 +30,15 @@ class _SocialScreenState extends State<SocialScreen> {
   void dispose() {
     _controller.dispose();
     super.dispose();
+  }
+
+  Future<void> _startOfflineTrip() async {
+    _controller.startTripLaunch();
+    await Future<void>.delayed(const Duration(milliseconds: 3400));
+    if (!mounted) {
+      return;
+    }
+    widget.onStartExplore?.call();
   }
 
   @override
@@ -60,16 +71,16 @@ class _SocialScreenState extends State<SocialScreen> {
       ),
       children: [
         Text(
-          'AI Match Nearby Explorers',
+          'Nearby Explorer Matches',
           style: Theme.of(context).textTheme.displayMedium,
         ),
         const SizedBox(height: AppSpacing.sm),
         Text(
-          'Recommended from bio, interests, travel intensity, and safety signals.',
+          'Sorted by city, shared interests, safety, preferred intensity, and profile fit.',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const SizedBox(height: AppSpacing.xl),
-        ...MockData.users.map(
+        ..._controller.nearbyUsers.map(
           (user) => Padding(
             padding: const EdgeInsets.only(bottom: 14),
             child: DopamineCard(
@@ -107,7 +118,7 @@ class _SocialScreenState extends State<SocialScreen> {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          '${user.travelStyle} - ${user.paceMatch}% match',
+                          '${user.travelStyle} - ${user.energyLevel.label}',
                           style: Theme.of(context).textTheme.bodyMedium,
                         ),
                         const SizedBox(height: 10),
@@ -200,15 +211,15 @@ class _SocialScreenState extends State<SocialScreen> {
           children: [
             Expanded(
               child: _ProfileCard(
-                label: 'Energy',
+                label: 'Preferred Intensity',
                 value: user.energyLevel.label,
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: _ProfileCard(
-                label: 'Match Score',
-                value: '${user.paceMatch}%',
+                label: 'City',
+                value: user.city,
               ),
             ),
           ],
@@ -273,6 +284,7 @@ class _SocialScreenState extends State<SocialScreen> {
   Widget _request(BuildContext context) {
     final accepted = _controller.requestStatus == RequestStatus.accepted;
     final rejected = _controller.requestStatus == RequestStatus.rejected;
+    final pending = !accepted && !rejected;
     return Center(
       key: const ValueKey('social-request'),
       child: Padding(
@@ -285,21 +297,22 @@ class _SocialScreenState extends State<SocialScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            CircleAvatar(
-              radius: 66,
-              backgroundColor: accepted
-                  ? AppColors.secondarySoft
-                  : AppColors.primarySoft,
-              child: Icon(
-                rejected
-                    ? Icons.close_rounded
-                    : accepted
-                    ? Icons.check_rounded
-                    : Icons.groups_rounded,
-                size: 60,
-                color: accepted ? AppColors.secondary : AppColors.primary,
-              ),
-            ),
+            pending
+                ? _RequestCountdown(
+                    duration: _controller.requestWaitDuration,
+                    name: _controller.selectedUser?.name ?? 'your match',
+                  )
+                : CircleAvatar(
+                    radius: 74,
+                    backgroundColor: accepted
+                        ? AppColors.secondarySoft
+                        : AppColors.primarySoft,
+                    child: Icon(
+                      rejected ? Icons.close_rounded : Icons.check_rounded,
+                      size: 68,
+                      color: accepted ? AppColors.secondary : AppColors.primary,
+                    ),
+                  ),
             const SizedBox(height: AppSpacing.xl),
             Text(
               rejected
@@ -331,30 +344,13 @@ class _SocialScreenState extends State<SocialScreen> {
                     label: 'Setup Meeting',
                     onPressed: () => _controller.goTo(SocialStep.setup),
                   )
-                : Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: _controller.endSharedTrip,
-                          child: const Text('Cancel'),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: PrimaryButton(
-                          label: 'Simulate Accept',
-                          backgroundColor: AppColors.secondary,
-                          onPressed: _controller.acceptRequest,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: _controller.rejectRequest,
-                          child: const Text('Reject'),
-                        ),
-                      ),
-                    ],
+                : SizedBox(
+                    width: 220,
+                    child: OutlinedButton.icon(
+                      onPressed: _controller.endSharedTrip,
+                      icon: const Icon(Icons.close_rounded),
+                      label: const Text('Cancel Request'),
+                    ),
                   ),
           ],
         ),
@@ -380,21 +376,44 @@ class _SocialScreenState extends State<SocialScreen> {
         const _MiniLabel('Meeting Point'),
         const SizedBox(height: AppSpacing.sm),
         DopamineCard(
+          onTap: _openMeetingPointInMaps,
           child: Row(
             children: [
               const Icon(Icons.place_outlined, color: AppColors.primary),
               const SizedBox(width: 12),
               Expanded(
-                child: Text(
-                  _controller.meetingPoint,
-                  style: Theme.of(context).textTheme.titleMedium,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _controller.meetingPoint,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Suggested near your current location',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ],
                 ),
+              ),
+              const SizedBox(width: 8),
+              const Icon(
+                Icons.map_outlined,
+                color: AppColors.secondary,
               ),
             ],
           ),
         ),
         const SizedBox(height: AppSpacing.lg),
-        const _MiniLabel('Shared Available Times'),
+        _MiniLabel(
+          '${_controller.selectedUser?.name ?? 'Your match'} selected ${_controller.selectedUserTimeCount} of ${_controller.allMeetingTimeOptions.length} times',
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Choose one of the times still available for both of you.',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
         const SizedBox(height: AppSpacing.sm),
         Wrap(
           spacing: 10,
@@ -450,17 +469,24 @@ class _SocialScreenState extends State<SocialScreen> {
     );
   }
 
+  Future<void> _openMeetingPointInMaps() async {
+    final uri = Uri.parse(_controller.meetingPointMapsUrl());
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      await launchUrl(uri, mode: LaunchMode.platformDefault);
+    }
+  }
+
   Widget _nfc(BuildContext context) {
-    return Center(
+    return Stack(
       key: const ValueKey('social-nfc'),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(
-          AppSpacing.lg,
-          AppSpacing.xl,
-          AppSpacing.lg,
-          140,
-        ),
-        child: Column(
+      children: [
+        ListView(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.lg,
+            AppSpacing.md,
+            AppSpacing.lg,
+            140,
+          ),
           children: [
             Align(
               alignment: Alignment.centerLeft,
@@ -470,51 +496,42 @@ class _SocialScreenState extends State<SocialScreen> {
                 style: IconButton.styleFrom(backgroundColor: Colors.white),
               ),
             ),
-            const SizedBox(height: AppSpacing.lg),
+            const SizedBox(height: AppSpacing.md),
             Text(
               'Meet Offline',
               style: Theme.of(context).textTheme.displayMedium,
+              textAlign: TextAlign.center,
             ),
             const SizedBox(height: AppSpacing.sm),
             Text(
-              'Tap phones together to confirm you\'ve met and start the group trip.',
+              'Tap phones together to confirm you met and launch your trip.',
               style: Theme.of(context).textTheme.bodyMedium,
               textAlign: TextAlign.center,
             ),
-            const Spacer(),
-            AnimatedScale(
-              scale: _controller.nfcScanning ? 1.05 : 1,
-              duration: const Duration(milliseconds: 250),
-              child: Container(
-                width: 180,
-                height: 320,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1E1E1E),
-                  borderRadius: BorderRadius.circular(42),
-                ),
-                child: const Icon(
-                  Icons.smartphone_rounded,
-                  color: Colors.white24,
-                  size: 72,
-                ),
-              ),
+            const SizedBox(height: AppSpacing.xl),
+            Center(
+              child: _NfcPhonePreview(scanning: _controller.nfcScanning),
             ),
-            const Spacer(),
+            const SizedBox(height: AppSpacing.xl),
             _controller.nfcScanning
-                ? Text(
-                    'Scanning...',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: AppColors.secondary,
+                ? Center(
+                    child: Text(
+                      'Starting your shared trip...',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: AppColors.secondary,
+                      ),
                     ),
                   )
                 : PrimaryButton(
                     label: 'Scan NFC to Start',
-                    icon: Icons.smartphone_rounded,
-                    onPressed: _controller.startNfcScan,
+                    icon: Icons.nfc_rounded,
+                    onPressed: _startOfflineTrip,
                   ),
           ],
         ),
-      ),
+        if (_controller.nfcScanning)
+          _TripLaunchOverlay(name: _controller.selectedUser?.name ?? 'buddy'),
+      ],
     );
   }
 
@@ -712,6 +729,421 @@ class _ProfileCard extends StatelessWidget {
           Text(value, style: Theme.of(context).textTheme.titleMedium),
         ],
       ),
+    );
+  }
+}
+
+class _NfcPhonePreview extends StatelessWidget {
+  const _NfcPhonePreview({required this.scanning});
+
+  final bool scanning;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedScale(
+      scale: scanning ? 1.03 : 1,
+      duration: const Duration(milliseconds: 260),
+      child: SizedBox(
+        width: 190,
+        height: 270,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            AnimatedOpacity(
+              opacity: scanning ? 1 : 0,
+              duration: const Duration(milliseconds: 220),
+              child: Container(
+                width: 176,
+                height: 176,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.secondary.withValues(alpha: 0.12),
+                ),
+              ),
+            ),
+            Container(
+              width: 154,
+              height: 260,
+              decoration: BoxDecoration(
+                color: const Color(0xFF202124),
+                borderRadius: BorderRadius.circular(34),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.18),
+                    blurRadius: 28,
+                    offset: const Offset(0, 18),
+                  ),
+                ],
+              ),
+              child: Stack(
+                children: [
+                  Positioned(
+                    top: 16,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: Container(
+                        width: 42,
+                        height: 5,
+                        decoration: BoxDecoration(
+                          color: Colors.white24,
+                          borderRadius: BorderRadius.circular(99),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Center(
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 260),
+                      width: scanning ? 66 : 52,
+                      height: scanning ? 66 : 52,
+                      decoration: BoxDecoration(
+                        color: scanning
+                            ? AppColors.secondary
+                            : Colors.white.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: const Icon(
+                        Icons.nfc_rounded,
+                        color: Colors.white,
+                        size: 34,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (scanning) ...[
+              const Positioned(
+                top: 36,
+                right: 14,
+                child: _NfcSparkle(icon: Icons.auto_awesome_rounded),
+              ),
+              const Positioned(
+                bottom: 42,
+                left: 12,
+                child: _NfcSparkle(icon: Icons.near_me_rounded),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NfcSparkle extends StatelessWidget {
+  const _NfcSparkle({required this.icon});
+
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return CircleAvatar(
+      radius: 18,
+      backgroundColor: AppColors.accent,
+      child: Icon(icon, color: AppColors.ink, size: 19),
+    );
+  }
+}
+
+class _TripLaunchOverlay extends StatelessWidget {
+  const _TripLaunchOverlay({required this.name});
+
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0, end: 1),
+          duration: const Duration(milliseconds: 1200),
+          curve: Curves.easeOutCubic,
+          builder: (context, value, _) {
+            return Container(
+              color: Colors.white.withValues(alpha: 0.82),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Positioned(
+                    top: -120 + (value * 210),
+                    left: 0,
+                    right: 0,
+                    child: _LaunchComet(progress: value),
+                  ),
+                  Positioned(
+                    top: 238,
+                    left: 0,
+                    right: 0,
+                    child: Opacity(
+                      opacity: value.clamp(0.0, 1.0),
+                      child: Column(
+                        children: [
+                          Text(
+                            'Trip started!',
+                            style: Theme.of(context).textTheme.displaySmall,
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Launching Explore with $name',
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: 344,
+                    child: Transform.scale(
+                      scale: 0.8 + (value * 0.2),
+                      child: _LaunchBuddyBadge(progress: value),
+                    ),
+                  ),
+                  Positioned(
+                    bottom: 178,
+                    child: Opacity(
+                      opacity: value,
+                      child: const Icon(
+                        Icons.keyboard_double_arrow_down_rounded,
+                        color: AppColors.ink,
+                        size: 38,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _LaunchComet extends StatelessWidget {
+  const _LaunchComet({required this.progress});
+
+  final double progress;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: SizedBox(
+        width: 220,
+        height: 170,
+        child: Stack(
+          alignment: Alignment.topCenter,
+          children: [
+            Positioned(
+              top: 30,
+              child: Container(
+                width: 8,
+                height: 128,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(99),
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      AppColors.primary.withValues(alpha: 0),
+                      AppColors.primary.withValues(alpha: 0.34),
+                      AppColors.secondary.withValues(alpha: 0.56),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 0,
+              child: Container(
+                width: 86,
+                height: 86,
+                decoration: BoxDecoration(
+                  color: AppColors.primary,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.primary.withValues(alpha: 0.34),
+                      blurRadius: 34,
+                      spreadRadius: 8,
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.rocket_launch_rounded,
+                  color: Colors.white,
+                  size: 42,
+                ),
+              ),
+            ),
+            Positioned(
+              top: 70,
+              left: 18 + progress * 8,
+              child: const _NfcSparkle(icon: Icons.auto_awesome_rounded),
+            ),
+            Positioned(
+              top: 94,
+              right: 22 + progress * 10,
+              child: const _NfcSparkle(icon: Icons.favorite_rounded),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LaunchBuddyBadge extends StatelessWidget {
+  const _LaunchBuddyBadge({required this.progress});
+
+  final double progress;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 220,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(32),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.secondary.withValues(alpha: 0.18),
+            blurRadius: 28,
+            offset: const Offset(0, 16),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          SizedBox(
+            width: 126,
+            height: 56,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Positioned(
+                  left: 0 + progress * 18,
+                  child: const CircleAvatar(
+                    radius: 28,
+                    backgroundColor: AppColors.primary,
+                    child: Icon(Icons.person_rounded, color: Colors.white),
+                  ),
+                ),
+                Positioned(
+                  right: 0 + progress * 18,
+                  child: const CircleAvatar(
+                    radius: 28,
+                    backgroundColor: AppColors.secondary,
+                    child: Icon(Icons.person_rounded, color: Colors.white),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            height: 8,
+            width: 154,
+            decoration: BoxDecoration(
+              color: AppColors.secondarySoft,
+              borderRadius: BorderRadius.circular(99),
+            ),
+            alignment: Alignment.centerLeft,
+            child: FractionallySizedBox(
+              widthFactor: progress.clamp(0.0, 1.0),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: AppColors.secondary,
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RequestCountdown extends StatelessWidget {
+  const _RequestCountdown({required this.duration, required this.name});
+
+  final Duration duration;
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 1, end: 0),
+      duration: duration,
+      builder: (context, value, _) {
+        final secondsLeft = (duration.inSeconds * value).ceil().clamp(0, 99);
+
+        return Container(
+          width: 190,
+          height: 190,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.primary.withValues(alpha: 0.16),
+                blurRadius: 30,
+                offset: const Offset(0, 18),
+              ),
+            ],
+          ),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              SizedBox(
+                width: 170,
+                height: 170,
+                child: CircularProgressIndicator(
+                  value: value,
+                  strokeWidth: 10,
+                  strokeCap: StrokeCap.round,
+                  backgroundColor: AppColors.primarySoft,
+                  valueColor: const AlwaysStoppedAnimation(AppColors.primary),
+                ),
+              ),
+              Container(
+                width: 126,
+                height: 126,
+                decoration: BoxDecoration(
+                  color: AppColors.primarySoft,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 8),
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(
+                      Icons.schedule_rounded,
+                      color: AppColors.primary,
+                      size: 34,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${secondsLeft}s',
+                      style: Theme.of(context).textTheme.headlineMedium
+                          ?.copyWith(color: AppColors.ink),
+                    ),
+                    Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
