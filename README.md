@@ -28,7 +28,7 @@ The design process started with competitor research and user survey insights, th
 
 ## Storyboard / User Journey
 
-The user journey shows two connected paths in WanderJoy: Explore Mode for personal AI-assisted exploration and Social Mode for meeting a compatible companion before entering a shared Explore flow.
+The user journey shows WanderJoy's three main flows: Explore Mode for personal AI-assisted exploration, Social Mode for safely meeting a compatible companion, and Memory for saving the route, photos, notes, locations, time points, and social companion context after a trip.
 
 ![Storyboard user journey](assets/readme/storyboard_user_journey.png)
 
