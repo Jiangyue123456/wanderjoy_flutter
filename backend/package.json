@@ -1,8 +1,0 @@
-{
-  "name": "wanderjoy-backend",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "dev": "node social_match_server.mjs"
-  }
-}
