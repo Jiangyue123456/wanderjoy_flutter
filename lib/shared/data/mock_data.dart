@@ -3,6 +3,14 @@ import '../models/app_models.dart';
 class MockData {
   const MockData._();
 
+  static const currentUserId = 'user_001';
+
+  static const currentCity = 'London';
+
+  static const nearbyCities = <String>['Cambridge', 'Oxford'];
+
+  static const preferredIntensity = EnergyLevel.low;
+
   static const myInterests = <PoiCategory>[
     PoiCategory.nature,
     PoiCategory.food,
@@ -135,6 +143,7 @@ class MockData {
       bio: 'I like gardens, murals, and quiet corners where a route can breathe.',
       distanceKm: 0.4,
       safetyRating: 4.9,
+      city: 'London',
       paceMatch: 95,
     ),
     UserProfile(
@@ -148,6 +157,7 @@ class MockData {
       bio: 'Always looking for markets, old streets, and one excellent snack.',
       distanceKm: 0.8,
       safetyRating: 4.8,
+      city: 'London',
       paceMatch: 82,
     ),
     UserProfile(
@@ -161,7 +171,106 @@ class MockData {
       bio: 'Museums, bookstores, and low-key routes are my ideal afternoon.',
       distanceKm: 1.1,
       safetyRating: 5.0,
+      city: 'London',
       paceMatch: 76,
+    ),
+    UserProfile(
+      id: 'u4',
+      name: 'Mina',
+      avatar: 'https://api.dicebear.com/7.x/avataaars/png?seed=Mina',
+      age: 25,
+      interests: [PoiCategory.food, PoiCategory.arts, PoiCategory.nature],
+      energyLevel: EnergyLevel.medium,
+      travelStyle: 'Cafe Sketch Walker',
+      bio: 'I like sketching storefronts, trying seasonal drinks, and keeping the route flexible.',
+      distanceKm: 0.6,
+      safetyRating: 4.9,
+      city: 'London',
+      paceMatch: 91,
+    ),
+    UserProfile(
+      id: 'u5',
+      name: 'Theo',
+      avatar: 'https://api.dicebear.com/7.x/avataaars/png?seed=Theo',
+      age: 29,
+      interests: [PoiCategory.culture, PoiCategory.food],
+      energyLevel: EnergyLevel.low,
+      travelStyle: 'Museum & Tea Pairing',
+      bio: 'Best day out: one thoughtful museum, one quiet tea stop, and no rushing between them.',
+      distanceKm: 1.3,
+      safetyRating: 4.7,
+      city: 'London',
+      paceMatch: 88,
+    ),
+    UserProfile(
+      id: 'u6',
+      name: 'Nora',
+      avatar: 'https://api.dicebear.com/7.x/avataaars/png?seed=Nora',
+      age: 23,
+      interests: [PoiCategory.nature, PoiCategory.other, PoiCategory.food],
+      energyLevel: EnergyLevel.high,
+      travelStyle: 'Sunset Route Chaser',
+      bio: 'I am happiest with river paths, sunset viewpoints, and a quick snack detour.',
+      distanceKm: 1.7,
+      safetyRating: 4.8,
+      city: 'Cambridge',
+      paceMatch: 84,
+    ),
+    UserProfile(
+      id: 'u7',
+      name: 'Kai',
+      avatar: 'https://api.dicebear.com/7.x/avataaars/png?seed=Kai',
+      age: 26,
+      interests: [PoiCategory.arts, PoiCategory.culture],
+      energyLevel: EnergyLevel.medium,
+      travelStyle: 'Design District Drifter',
+      bio: 'I follow small galleries, architecture details, and streets that reward slow looking.',
+      distanceKm: 0.9,
+      safetyRating: 5.0,
+      city: 'London',
+      paceMatch: 86,
+    ),
+    UserProfile(
+      id: 'u8',
+      name: 'Lina',
+      avatar: 'https://api.dicebear.com/7.x/avataaars/png?seed=Lina',
+      age: 28,
+      interests: [PoiCategory.food, PoiCategory.other, PoiCategory.culture],
+      energyLevel: EnergyLevel.low,
+      travelStyle: 'Bookshop Brunch Buddy',
+      bio: 'Independent bookstores, bakery counters, and quiet side streets are my comfort zone.',
+      distanceKm: 2.1,
+      safetyRating: 4.9,
+      city: 'Oxford',
+      paceMatch: 80,
+    ),
+    UserProfile(
+      id: 'u9',
+      name: 'Owen',
+      avatar: 'https://api.dicebear.com/7.x/avataaars/png?seed=Owen',
+      age: 31,
+      interests: [PoiCategory.nature, PoiCategory.culture, PoiCategory.arts],
+      energyLevel: EnergyLevel.high,
+      travelStyle: 'Full-Day Urban Hiker',
+      bio: 'I like connecting parks, historic blocks, and public art into one long city walk.',
+      distanceKm: 2.4,
+      safetyRating: 4.6,
+      city: 'London',
+      paceMatch: 78,
+    ),
+    UserProfile(
+      id: 'u10',
+      name: 'Sofia',
+      avatar: 'https://api.dicebear.com/7.x/avataaars/png?seed=Sofia',
+      age: 24,
+      interests: [PoiCategory.arts, PoiCategory.food, PoiCategory.other],
+      energyLevel: EnergyLevel.medium,
+      travelStyle: 'Photo Snack Loop',
+      bio: 'I collect color palettes, window displays, and small bites that make a walk memorable.',
+      distanceKm: 1.5,
+      safetyRating: 4.8,
+      city: 'London',
+      paceMatch: 83,
     ),
   ];
 

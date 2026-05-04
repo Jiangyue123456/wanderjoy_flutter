@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 
+import '../memory/memory_repository.dart';
 import '../../shared/data/mock_data.dart';
 import '../../shared/models/app_models.dart';
 import 'explore_agent_service.dart';
@@ -11,11 +12,22 @@ import 'explore_agent_service.dart';
 enum ExploreStep { home, input, customize, route, trip, summary }
 
 class ExploreController extends ChangeNotifier {
-  ExploreController({this.exploreAgentService = const ExploreAgentService()});
+  ExploreController({
+    this.exploreAgentService = const ExploreAgentService(),
+    this.tripContext = const ExploreTripContext(),
+    ExploreStep initialStep = ExploreStep.home,
+  }) : step = initialStep {
+    chatMessages.add(
+      tripContext.isSocial
+          ? 'AI: Tell me what you and ${tripContext.buddyName ?? 'your friend'} want to do together.'
+          : 'AI: Let\'s talk about where you\'d like to go.',
+    );
+  }
 
   final ExploreAgentService exploreAgentService;
+  final ExploreTripContext tripContext;
 
-  ExploreStep step = ExploreStep.home;
+  ExploreStep step;
   RouteMode mode = RouteMode.relaxed;
   EnergyLevel energy = EnergyLevel.low;
   final List<PoiCategory> interests = List<PoiCategory>.from(MockData.myInterests);
@@ -23,14 +35,14 @@ class ExploreController extends ChangeNotifier {
       .map((interest) => interest.label)
       .toList();
   final List<Poi> selectedPois = [];
-  final List<String> chatMessages = [
-    'AI: Let\'s talk about where you\'d like to go.',
-  ];
+  final List<String> chatMessages = [];
   String searchQuery = '';
   String chatInput = '';
   String timeAvailable = 'Half day';
   String profileName = 'Explorer';
+  String profileAvatar = '';
   String profileBio = MockData.myBio;
+  String? conversationLanguage;
   bool isListening = false;
   bool isGeneratingPlaces = false;
   bool isSearchingPlaces = false;
@@ -38,6 +50,7 @@ class ExploreController extends ChangeNotifier {
   String? exploreError;
   final List<Poi> searchResults = [];
   final Set<String> loadingPlaceDetailIds = {};
+  final List<MemoryEntry> routeMemories = [];
   Poi? activePoi;
   ExploreRoutePlan? routePlan;
   String? routePlanningNotice;
@@ -165,6 +178,112 @@ class ExploreController extends ChangeNotifier {
     return (optimizedPois.length * base + totalDistanceKm * 12).round();
   }
 
+  Poi? get navigationNextStop {
+    if (optimizedPois.isEmpty) {
+      return null;
+    }
+    final originLat = currentLocationLat;
+    final originLng = currentLocationLng;
+    if (originLat == null || originLng == null) {
+      return optimizedPois.first;
+    }
+
+    for (final poi in optimizedPois) {
+      final distance = _haversineKm(originLat, originLng, poi.lat, poi.lng);
+      if (distance > 0.08) {
+        return poi;
+      }
+    }
+    return optimizedPois.last;
+  }
+
+  NavigationCue get navigationCue {
+    final points = routePlan?.polylinePoints ?? const [];
+    final originLat = currentLocationLat;
+    final originLng = currentLocationLng;
+    final fallbackStop = navigationNextStop;
+    if (originLat == null || originLng == null) {
+      return NavigationCue(
+        icon: Icons.navigation_rounded,
+        title: 'Follow the route',
+        subtitle: fallbackStop?.name ?? 'Continue to the next stop',
+      );
+    }
+
+    if (points.length < 4) {
+      final stop = fallbackStop;
+      final distance = stop == null ? null : distanceFromCurrentKm(stop);
+      return NavigationCue(
+        icon: Icons.arrow_upward_rounded,
+        title: 'Head toward ${stop?.name ?? 'the route'}',
+        subtitle: distance == null ? 'Follow the blue line' : '${distance.toStringAsFixed(1)} km away',
+      );
+    }
+
+    var nearestIndex = 0;
+    var nearestDistance = double.infinity;
+    for (var index = 0; index < points.length; index++) {
+      final point = points[index];
+      final distance = pow(point.lat - originLat, 2) + pow(point.lng - originLng, 2);
+      if (distance < nearestDistance) {
+        nearestDistance = distance.toDouble();
+        nearestIndex = index;
+      }
+    }
+
+    final nextIndex = min(nearestIndex + 3, points.length - 1);
+    final futureIndex = min(nearestIndex + 8, points.length - 1);
+    final firstBearing = _bearingDegrees(originLat, originLng, points[nextIndex].lat, points[nextIndex].lng);
+    final secondBearing = _bearingDegrees(points[nextIndex].lat, points[nextIndex].lng, points[futureIndex].lat, points[futureIndex].lng);
+    final delta = _bearingDelta(firstBearing, secondBearing);
+    final stop = navigationNextStop;
+    final distance = stop == null ? null : distanceFromCurrentKm(stop);
+    final subtitle = stop == null
+        ? 'Follow the blue route'
+        : '${stop.name}${distance == null ? '' : ' - ${distance.toStringAsFixed(1)} km'}';
+
+    if (delta > 35) {
+      return NavigationCue(
+        icon: Icons.turn_right_rounded,
+        title: 'Turn right soon',
+        subtitle: subtitle,
+      );
+    }
+    if (delta < -35) {
+      return NavigationCue(
+        icon: Icons.turn_left_rounded,
+        title: 'Turn left soon',
+        subtitle: subtitle,
+      );
+    }
+    return NavigationCue(
+      icon: Icons.arrow_upward_rounded,
+      title: 'Continue straight',
+      subtitle: subtitle,
+    );
+  }
+
+  double get navigationBearingDegrees {
+    final points = routePlan?.polylinePoints ?? const [];
+    final originLat = currentLocationLat;
+    final originLng = currentLocationLng;
+    if (originLat == null || originLng == null || points.length < 2) {
+      return 0;
+    }
+    var nearestIndex = 0;
+    var nearestDistance = double.infinity;
+    for (var index = 0; index < points.length; index++) {
+      final point = points[index];
+      final distance = pow(point.lat - originLat, 2) + pow(point.lng - originLng, 2);
+      if (distance < nearestDistance) {
+        nearestDistance = distance.toDouble();
+        nearestIndex = index;
+      }
+    }
+    final nextIndex = min(nearestIndex + 4, points.length - 1);
+    return _bearingDegrees(originLat, originLng, points[nextIndex].lat, points[nextIndex].lng);
+  }
+
   List<Poi> get filteredSearchResults {
     return searchResults
         .where((poi) => !selectedPois.any((item) => item.id == poi.id))
@@ -235,6 +354,116 @@ class ExploreController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void saveRouteMemory({
+    required String photoPath,
+    required String note,
+  }) {
+    final now = DateTime.now();
+    final stop = navigationNextStop;
+    final locationName = stop?.name ?? currentLocationName;
+    final isSocial = tripContext.isSocial;
+    final buddyName = tripContext.buddyName;
+    final memory = MemoryEntry(
+      id: 'memory_${now.millisecondsSinceEpoch}',
+      routeId:
+          tripContext.sharedRouteId ??
+          'route_${routePlan?.orderedPlaceIds.join('_') ?? now.millisecondsSinceEpoch}',
+      userId: 'me',
+      photo: photoPath,
+      text: note.trim().isEmpty
+          ? isSocial
+                ? 'A shared moment from this WanderJoy route with $buddyName.'
+                : 'A moment from this WanderJoy route.'
+          : note.trim(),
+      location: locationName,
+      timestamp: _formatMemoryTimestamp(now),
+      tripType: tripContext.tripType,
+      title: isSocial && buddyName != null
+          ? 'Shared memory with $buddyName at $locationName'
+          : 'Explore memory at $locationName',
+      lat: currentLocationLat,
+      lng: currentLocationLng,
+      participantIds: [
+        'me',
+        if (tripContext.buddyId != null) tripContext.buddyId!,
+      ],
+      participantNames: [
+        profileName,
+        if (buddyName != null) buddyName,
+      ],
+      buddyName: buddyName,
+      buddyAvatar: tripContext.buddyAvatar,
+      sharedRouteId: tripContext.sharedRouteId,
+      routeSnapshot: _buildMemoryRouteSnapshot(
+        photoPath: photoPath,
+        note: note,
+      ),
+    );
+    routeMemories.insert(0, memory);
+    MemoryRepository.add(memory);
+    notifyListeners();
+  }
+
+  MemoryRouteSnapshot _buildMemoryRouteSnapshot({
+    required String photoPath,
+    required String note,
+  }) {
+    final routePoints = routePlan?.polylinePoints
+            .map((point) => MemoryRoutePoint(lat: point.lat, lng: point.lng))
+            .toList() ??
+        const <MemoryRoutePoint>[];
+    final fallbackPoints = [
+      if (navigationOriginLat != null && navigationOriginLng != null)
+        MemoryRoutePoint(lat: navigationOriginLat!, lng: navigationOriginLng!),
+      ...optimizedPois.map((poi) => MemoryRoutePoint(lat: poi.lat, lng: poi.lng)),
+    ];
+    final photos = [
+      ...routeMemories.map(
+        (memory) => MemoryRoutePhoto(
+          path: memory.photo,
+          text: memory.text,
+          title: memory.title,
+          timestamp: memory.timestamp,
+          location: memory.location,
+          lat: memory.lat,
+          lng: memory.lng,
+        ),
+      ),
+      MemoryRoutePhoto(
+        path: photoPath,
+        text: note.trim().isEmpty
+            ? tripContext.isSocial
+                ? 'A shared moment from this WanderJoy route with ${tripContext.buddyName}.'
+                : 'A moment from this WanderJoy route.'
+            : note.trim(),
+        title: tripContext.isSocial && tripContext.buddyName != null
+            ? 'Shared memory with ${tripContext.buddyName}'
+            : 'Explore memory',
+        timestamp: _formatMemoryTimestamp(DateTime.now()),
+        location: navigationNextStop?.name ?? currentLocationName,
+        lat: currentLocationLat,
+        lng: currentLocationLng,
+      ),
+    ];
+
+    return MemoryRouteSnapshot(
+      title: tripContext.isSocial ? 'Shared route map' : 'Route map',
+      durationMinutes: estimatedMinutes,
+      stopCount: optimizedPois.length,
+      points: routePoints.isEmpty ? fallbackPoints : routePoints,
+      stops: optimizedPois
+          .map(
+            (poi) => MemoryRouteStop(
+              name: poi.name,
+              lat: poi.lat,
+              lng: poi.lng,
+            ),
+          )
+          .toList(),
+      photos: photos,
+    );
+  }
+
   void setMode(RouteMode value) {
     mode = value;
     energy = switch (value) {
@@ -272,19 +501,26 @@ class ExploreController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void applyProfile(Map<String, dynamic>? data, {String? fallbackName}) {
+  void applyProfile(
+    Map<String, dynamic>? data, {
+    String? fallbackName,
+    String? fallbackAvatar,
+  }) {
     final nextName = _readString(data, 'displayName', fallback: fallbackName ?? 'Explorer');
+    final nextAvatar = _readString(data, 'avatarUrl', fallback: fallbackAvatar ?? '');
     final nextBio = _readString(data, 'bio', fallback: MockData.myBio);
     final nextIntensity = _readString(data, 'preferredIntensity', fallback: 'Relaxed');
     final nextInterestLabels = _readInterestLabels(data?['interests']);
     final nextInterests = _readInterests(nextInterestLabels);
-    final signature = '$nextName|$nextBio|$nextIntensity|${nextInterestLabels.join(',')}';
+    final signature =
+        '$nextName|$nextAvatar|$nextBio|$nextIntensity|${nextInterestLabels.join(',')}';
 
     if (_profileSignature == signature) {
       return;
     }
 
     profileName = nextName;
+    profileAvatar = nextAvatar;
     profileBio = nextBio;
     profileInterestLabels
       ..clear()
@@ -304,14 +540,22 @@ class ExploreController extends ChangeNotifier {
     };
     chatMessages
       ..clear()
-      ..add('AI: Let\'s talk about where you\'d like to go.');
+      ..add(
+        tripContext.isSocial
+            ? 'AI: Tell me what you and ${tripContext.buddyName ?? 'your friend'} want to do together.'
+            : 'AI: Let\'s talk about where you\'d like to go.',
+      );
     _profileSignature = signature;
     notifyListeners();
   }
 
   void startVoiceConversation() {
     isListening = true;
-    chatMessages.add('AI: I am listening. Tell me your mood, time, or anything you want to avoid today.');
+    chatMessages.add(
+      tripContext.isSocial
+          ? 'AI: I am listening. Tell me what both of you want, your shared pace, or anything either of you wants to avoid.'
+          : 'AI: I am listening. Tell me your mood, time, or anything you want to avoid today.',
+    );
     notifyListeners();
   }
 
@@ -325,7 +569,9 @@ class ExploreController extends ChangeNotifier {
       'You: I would like the route to match how I feel right now.',
     );
     chatMessages.add(
-      'AI: Got it. I will combine that with your saved profile before recommending places.',
+      tripContext.isSocial
+          ? 'AI: Got it. I will combine both profiles before recommending places.'
+          : 'AI: Got it. I will combine that with your saved profile before recommending places.',
     );
     notifyListeners();
   }
@@ -337,6 +583,7 @@ class ExploreController extends ChangeNotifier {
     }
 
     chatMessages.add('You: $trimmed');
+    conversationLanguage ??= _detectConversationLanguage(trimmed);
     final lower = trimmed.toLowerCase();
     for (final category in PoiCategory.values) {
       if (lower.contains(category.label.toLowerCase()) &&
@@ -360,7 +607,9 @@ class ExploreController extends ChangeNotifier {
       timeAvailable = 'Half day';
     }
     chatMessages.add(
-      'AI: Got it. I will combine your profile with what you just said before recommending places.',
+      tripContext.isSocial
+          ? 'AI: Got it. I will combine both profiles with what you just said before recommending places.'
+          : 'AI: Got it. I will combine your profile with what you just said before recommending places.',
     );
     chatInput = '';
     notifyListeners();
@@ -451,6 +700,7 @@ class ExploreController extends ChangeNotifier {
     final pendingInput = chatInput.trim();
     if (pendingInput.isNotEmpty) {
       chatMessages.add('You: $pendingInput');
+      conversationLanguage ??= _detectConversationLanguage(pendingInput);
       chatInput = '';
     }
 
@@ -461,11 +711,13 @@ class ExploreController extends ChangeNotifier {
 
     try {
       final response = await exploreAgentService.recommend(
-        inputAsText: _latestUserInput(),
+        inputAsText: _agentInputText(),
         userId: 'preview_user',
-        profileInterests: profileInterestLabels,
+        profileInterests: _agentInterestLabels(),
         preferredIntensity: mode.name,
-        profileBio: profileBio,
+        profileBio: _agentProfileBio(),
+        responseLanguage:
+            conversationLanguage ?? _detectConversationLanguage(_latestUserInput()),
         currentLocationLat: currentLocationLat,
         currentLocationLng: currentLocationLng,
         currentLocationName: currentLocationName,
@@ -514,7 +766,50 @@ class ExploreController extends ChangeNotifier {
         return message.substring(5).trim();
       }
     }
+    if (tripContext.isSocial) {
+      return 'We want to explore nearby places that match both of our interests.';
+    }
     return 'I want to explore nearby places that match my interests.';
+  }
+
+  String _agentInputText() {
+    final input = _latestUserInput();
+    if (!tripContext.isSocial) {
+      return input;
+    }
+    return [
+      input,
+      'This is a social trip with ${tripContext.buddyName ?? 'a friend'}. Recommend real places that work for both people.',
+    ].join('\n');
+  }
+
+  List<String> _agentInterestLabels() {
+    if (!tripContext.isSocial) {
+      return profileInterestLabels;
+    }
+    return {
+      ...profileInterestLabels,
+      ...tripContext.buddyInterests.map((interest) => interest.label),
+    }.toList();
+  }
+
+  String _agentProfileBio() {
+    if (!tripContext.isSocial) {
+      return profileBio;
+    }
+    return [
+      'Me: $profileBio',
+      if (tripContext.buddyName != null || tripContext.buddyBio != null)
+        '${tripContext.buddyName ?? 'Friend'}: ${tripContext.buddyBio ?? ''}',
+    ].join('\n');
+  }
+
+  String _detectConversationLanguage(String text) {
+    final hasCjk = RegExp(r'[\u3400-\u9fff]').hasMatch(text);
+    if (hasCjk) {
+      return 'Chinese';
+    }
+    return 'English';
   }
 
   void addPoi(Poi poi) {
@@ -716,6 +1011,32 @@ class ExploreController extends ChangeNotifier {
 
   double _degreesToRadians(double value) => value * pi / 180;
 
+  double _radiansToDegrees(double value) => value * 180 / pi;
+
+  double _bearingDegrees(
+    double startLat,
+    double startLng,
+    double endLat,
+    double endLng,
+  ) {
+    final lat1 = _degreesToRadians(startLat);
+    final lat2 = _degreesToRadians(endLat);
+    final dLng = _degreesToRadians(endLng - startLng);
+    final y = sin(dLng) * cos(lat2);
+    final x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLng);
+    return (_radiansToDegrees(atan2(y, x)) + 360) % 360;
+  }
+
+  double _bearingDelta(double from, double to) {
+    return ((to - from + 540) % 360) - 180;
+  }
+
+  String _formatMemoryTimestamp(DateTime value) {
+    String twoDigits(int number) => number.toString().padLeft(2, '0');
+    return '${value.year}-${twoDigits(value.month)}-${twoDigits(value.day)} '
+        '${twoDigits(value.hour)}:${twoDigits(value.minute)}';
+  }
+
   bool _matchesPoiId(Poi poi, String id) {
     return poi.id == id ||
         poi.googlePlaceId == id ||
@@ -818,4 +1139,16 @@ class ExploreController extends ChangeNotifier {
     _positionSubscription?.cancel();
     super.dispose();
   }
+}
+
+class NavigationCue {
+  const NavigationCue({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
 }

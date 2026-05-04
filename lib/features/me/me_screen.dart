@@ -1,7 +1,11 @@
+import 'dart:io';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../app/auth/auth_service.dart';
 import '../../core/theme/app_colors.dart';
@@ -18,6 +22,7 @@ class MeScreen extends StatefulWidget {
 
 class _MeScreenState extends State<MeScreen> {
   final _formKey = GlobalKey<FormState>();
+  final _imagePicker = ImagePicker();
   final _avatarUrlController = TextEditingController();
   final _displayNameController = TextEditingController();
   final _ageController = TextEditingController();
@@ -127,6 +132,31 @@ class _MeScreenState extends State<MeScreen> {
     }
   }
 
+  Future<void> _pickAvatarImage() async {
+    final image = await _imagePicker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 88,
+      maxWidth: 900,
+    );
+    if (image == null || !mounted) {
+      return;
+    }
+
+    final documentsDir = await getApplicationDocumentsDirectory();
+    final fileName =
+        'wanderjoy_avatar_${DateTime.now().millisecondsSinceEpoch}.jpg';
+    final savedAvatar = await File(image.path).copy(
+      '${documentsDir.path}/$fileName',
+    );
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _avatarUrlController.text = savedAvatar.path;
+    });
+  }
+
   void _hydrateForm(User user, DocumentSnapshot<Map<String, dynamic>>? profile) {
     if (_hasHydratedForm && _hydratedProfileId == user.uid) {
       return;
@@ -203,6 +233,7 @@ class _MeScreenState extends State<MeScreen> {
             avatarUrl: '',
             safetyRating: '5.0',
             form: _buildPreviewForm(context),
+            onAvatarTap: null,
             onSignOut: _isSigningOut ? null : _handleSignOut,
             signOutLabel: _isSigningOut ? 'Signing Out...' : 'Exit Preview Mode',
             isSigningOut: _isSigningOut,
@@ -233,11 +264,14 @@ class _MeScreenState extends State<MeScreen> {
                   ? user.displayName!
                   : 'WanderJoy Explorer',
             );
-            final avatarUrl = _readString(
+            final savedAvatarUrl = _readString(
               data,
               'avatarUrl',
               fallback: user.photoURL ?? '',
             );
+            final avatarUrl = _avatarUrlController.text.trim().isNotEmpty
+                ? _avatarUrlController.text.trim()
+                : savedAvatarUrl;
             final safetyRating = _readNumber(
               data,
               'safetyRating',
@@ -253,6 +287,7 @@ class _MeScreenState extends State<MeScreen> {
               avatarUrl: avatarUrl,
               safetyRating: safetyRating,
               form: _buildProfileForm(user, profile?.exists ?? false),
+              onAvatarTap: _pickAvatarImage,
               onSignOut: _isSigningOut ? null : _handleSignOut,
               signOutLabel: _isSigningOut ? 'Signing Out...' : 'Log Out',
               isSigningOut: _isSigningOut,
@@ -291,12 +326,6 @@ class _MeScreenState extends State<MeScreen> {
               ],
             ),
             const SizedBox(height: AppSpacing.md),
-            _TextField(
-              controller: _avatarUrlController,
-              label: 'Avatar URL',
-              icon: Icons.image_outlined,
-              keyboardType: TextInputType.url,
-            ),
             _TextField(
               controller: _displayNameController,
               label: 'Display Name',
@@ -391,6 +420,7 @@ class _ProfileBody extends StatelessWidget {
     required this.avatarUrl,
     required this.safetyRating,
     required this.form,
+    required this.onAvatarTap,
     required this.onSignOut,
     required this.signOutLabel,
     required this.isSigningOut,
@@ -401,6 +431,7 @@ class _ProfileBody extends StatelessWidget {
   final String avatarUrl;
   final String safetyRating;
   final Widget form;
+  final VoidCallback? onAvatarTap;
   final VoidCallback? onSignOut;
   final String signOutLabel;
   final bool isSigningOut;
@@ -420,7 +451,10 @@ class _ProfileBody extends StatelessWidget {
         Center(
           child: Column(
             children: [
-              _ProfileAvatar(avatarUrl: avatarUrl),
+              _ProfileAvatar(
+                avatarUrl: avatarUrl,
+                onTap: onAvatarTap,
+              ),
               const SizedBox(height: AppSpacing.md),
               Text(
                 displayName,
@@ -478,26 +512,77 @@ class _ProfileBody extends StatelessWidget {
 }
 
 class _ProfileAvatar extends StatelessWidget {
-  const _ProfileAvatar({required this.avatarUrl});
+  const _ProfileAvatar({
+    required this.avatarUrl,
+    required this.onTap,
+  });
 
   final String avatarUrl;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    if (avatarUrl.trim().isNotEmpty) {
-      return ClipRRect(
+    final trimmed = avatarUrl.trim();
+    Widget avatar;
+    if (trimmed.startsWith('http')) {
+      avatar = ClipRRect(
         borderRadius: BorderRadius.circular(32),
         child: Image.network(
-          avatarUrl,
+          trimmed,
           width: 132,
           height: 132,
           fit: BoxFit.cover,
           errorBuilder: (context, error, stackTrace) => const _AvatarFallback(),
         ),
       );
+    } else if (trimmed.isNotEmpty && File(trimmed).existsSync()) {
+      avatar = ClipRRect(
+        borderRadius: BorderRadius.circular(32),
+        child: Image.file(
+          File(trimmed),
+          width: 132,
+          height: 132,
+          fit: BoxFit.cover,
+        ),
+      );
+    } else {
+      avatar = const _AvatarFallback();
     }
 
-    return const _AvatarFallback();
+    return GestureDetector(
+      onTap: onTap,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          avatar,
+          if (onTap != null)
+            Positioned(
+              right: -4,
+              bottom: -4,
+              child: Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.14),
+                      blurRadius: 12,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.photo_camera_outlined,
+                  size: 20,
+                  color: AppColors.primary,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }
 

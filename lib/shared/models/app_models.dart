@@ -18,6 +18,8 @@ class UserProfile {
     required this.bio,
     required this.distanceKm,
     required this.safetyRating,
+    this.city = 'London',
+    this.nearbyCities = const [],
     this.paceMatch,
   });
 
@@ -31,7 +33,33 @@ class UserProfile {
   final String bio;
   final double distanceKm;
   final double safetyRating;
+  final String city;
+  final List<String> nearbyCities;
   final int? paceMatch;
+}
+
+class ExploreTripContext {
+  const ExploreTripContext({
+    this.tripType = TripType.explore,
+    this.buddyId,
+    this.buddyName,
+    this.buddyAvatar,
+    this.buddyBio,
+    this.buddyInterests = const [],
+    this.buddyPreferredIntensity,
+    this.sharedRouteId,
+  });
+
+  final TripType tripType;
+  final String? buddyId;
+  final String? buddyName;
+  final String? buddyAvatar;
+  final String? buddyBio;
+  final List<PoiCategory> buddyInterests;
+  final EnergyLevel? buddyPreferredIntensity;
+  final String? sharedRouteId;
+
+  bool get isSocial => tripType == TripType.social;
 }
 
 class Poi {
@@ -138,6 +166,14 @@ class MemoryEntry {
     required this.timestamp,
     required this.tripType,
     required this.title,
+    this.lat,
+    this.lng,
+    this.participantIds = const [],
+    this.participantNames = const [],
+    this.buddyName,
+    this.buddyAvatar,
+    this.sharedRouteId,
+    this.routeSnapshot,
   });
 
   final String id;
@@ -149,6 +185,74 @@ class MemoryEntry {
   final String timestamp;
   final TripType tripType;
   final String title;
+  final double? lat;
+  final double? lng;
+  final List<String> participantIds;
+  final List<String> participantNames;
+  final String? buddyName;
+  final String? buddyAvatar;
+  final String? sharedRouteId;
+  final MemoryRouteSnapshot? routeSnapshot;
+}
+
+class MemoryRouteSnapshot {
+  const MemoryRouteSnapshot({
+    required this.title,
+    required this.durationMinutes,
+    required this.stopCount,
+    required this.points,
+    required this.stops,
+    required this.photos,
+  });
+
+  final String title;
+  final int durationMinutes;
+  final int stopCount;
+  final List<MemoryRoutePoint> points;
+  final List<MemoryRouteStop> stops;
+  final List<MemoryRoutePhoto> photos;
+}
+
+class MemoryRoutePoint {
+  const MemoryRoutePoint({
+    required this.lat,
+    required this.lng,
+  });
+
+  final double lat;
+  final double lng;
+}
+
+class MemoryRouteStop {
+  const MemoryRouteStop({
+    required this.name,
+    required this.lat,
+    required this.lng,
+  });
+
+  final String name;
+  final double lat;
+  final double lng;
+}
+
+class MemoryRoutePhoto {
+  const MemoryRoutePhoto({
+    required this.path,
+    required this.text,
+    required this.title,
+    required this.timestamp,
+    required this.location,
+    this.lat,
+    this.lng,
+  });
+
+  final String path;
+  final String text;
+  final String title;
+  final String timestamp;
+  final String location;
+  final double? lat;
+  final double? lng;
 }
 
 extension PoiCategoryX on PoiCategory {

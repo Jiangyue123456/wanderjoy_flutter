@@ -3,15 +3,15 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
+import '../explore/explore_controller.dart';
+import '../explore/explore_screen.dart';
 import '../../shared/models/app_models.dart';
 import '../../shared/widgets/dopamine_card.dart';
 import '../../shared/widgets/primary_button.dart';
 import 'social_controller.dart';
 
 class SocialScreen extends StatefulWidget {
-  const SocialScreen({super.key, this.onStartExplore});
-
-  final VoidCallback? onStartExplore;
+  const SocialScreen({super.key});
 
   @override
   State<SocialScreen> createState() => _SocialScreenState();
@@ -38,7 +38,7 @@ class _SocialScreenState extends State<SocialScreen> {
     if (!mounted) {
       return;
     }
-    widget.onStartExplore?.call();
+    _controller.openSharedExplore();
   }
 
   @override
@@ -53,6 +53,7 @@ class _SocialScreenState extends State<SocialScreen> {
           SocialStep.request => _request(context),
           SocialStep.setup => _setup(context),
           SocialStep.nfc => _nfc(context),
+          SocialStep.sharedExplore => _sharedExplore(context),
           SocialStep.edit => _edit(context),
           SocialStep.sharedTrip => _sharedTrip(context),
         },
@@ -600,6 +601,14 @@ class _SocialScreenState extends State<SocialScreen> {
     );
   }
 
+  Widget _sharedExplore(BuildContext context) {
+    return ExploreScreen(
+      key: const ValueKey('social-shared-explore'),
+      tripContext: _controller.sharedExploreContext,
+      initialStep: ExploreStep.input,
+    );
+  }
+
   Widget _sharedTrip(BuildContext context) {
     return Stack(
       key: const ValueKey('social-shared-trip'),
@@ -651,6 +660,12 @@ class _SocialScreenState extends State<SocialScreen> {
                         size: 120,
                         color: Color(0x18FF6B6B),
                       ),
+                    ),
+                  ),
+                  Align(
+                    alignment: const Alignment(-0.72, -0.62),
+                    child: _SharedStartMarker(
+                      buddy: _controller.selectedUser,
                     ),
                   ),
                   Align(
@@ -727,6 +742,121 @@ class _ProfileCard extends StatelessWidget {
           Text(label, style: Theme.of(context).textTheme.labelSmall),
           const SizedBox(height: 8),
           Text(value, style: Theme.of(context).textTheme.titleMedium),
+        ],
+      ),
+    );
+  }
+}
+
+class _StackedAvatars extends StatelessWidget {
+  const _StackedAvatars({required this.buddy});
+
+  final UserProfile? buddy;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 76,
+      height: 56,
+      child: Stack(
+        children: [
+          const Positioned(
+            left: 0,
+            top: 4,
+            child: CircleAvatar(
+              radius: 26,
+              backgroundColor: AppColors.primary,
+              child: Icon(Icons.person_rounded, color: Colors.white),
+            ),
+          ),
+          Positioned(
+            right: 0,
+            top: 4,
+            child: CircleAvatar(
+              radius: 26,
+              backgroundColor: Colors.white,
+              child: ClipOval(
+                child: buddy == null
+                    ? const ColoredBox(
+                        color: AppColors.secondary,
+                        child: SizedBox(
+                          width: 48,
+                          height: 48,
+                          child: Icon(Icons.person_rounded, color: Colors.white),
+                        ),
+                      )
+                    : Image.network(
+                        buddy!.avatar,
+                        width: 48,
+                        height: 48,
+                        fit: BoxFit.cover,
+                      ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PreferenceCard extends StatelessWidget {
+  const _PreferenceCard({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(22),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label.toUpperCase(), style: Theme.of(context).textTheme.labelSmall),
+          const SizedBox(height: 8),
+          Text(value, style: Theme.of(context).textTheme.titleSmall),
+        ],
+      ),
+    );
+  }
+}
+
+class _SharedStartMarker extends StatelessWidget {
+  const _SharedStartMarker({required this.buddy});
+
+  final UserProfile? buddy;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.10),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _StackedAvatars(buddy: buddy),
+          const SizedBox(width: 4),
+          Text('Start', style: Theme.of(context).textTheme.labelSmall),
         ],
       ),
     );
@@ -886,7 +1016,7 @@ class _TripLaunchOverlay extends StatelessWidget {
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            'Launching Explore with $name',
+                            'Opening Shared Explore with $name',
                             style: Theme.of(context).textTheme.bodyMedium,
                           ),
                         ],

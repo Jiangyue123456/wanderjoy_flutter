@@ -143,19 +143,21 @@ class ExploreAgentService {
     required List<String> profileInterests,
     required String preferredIntensity,
     required String profileBio,
+    required String responseLanguage,
     double? currentLocationLat,
     double? currentLocationLng,
     String? currentLocationName,
   }) async {
     final input = {
       'input_as_text': inputAsText,
-      'userid': userId,
-      'profileinterests': profileInterests.join(', '),
-      'preferredintensity': preferredIntensity,
-      'profileBio': profileBio,
-      'currentlocationlat': currentLocationLat,
-      'currentlocationlng': currentLocationLng,
-      'currentlocationname': currentLocationName,
+      'user_id': userId,
+      'profile_interests': profileInterests.join(', '),
+      'preferred_intensity': preferredIntensity,
+      'profile_bio': profileBio,
+      'response_language': responseLanguage,
+      'current_location_lat': currentLocationLat,
+      'current_location_lng': currentLocationLng,
+      'current_location_name': currentLocationName,
     };
 
     return _requestPlacesWithRetry(
@@ -623,13 +625,14 @@ class ExploreRouteStep {
 class ExploreAgentResponse {
   const ExploreAgentResponse({
     required this.recommendedPlaces,
-    required this.needsMoreInfo,
-    required this.followUpQuestion,
-    required this.needsConfirmation,
+    required this.isDone,
+    required this.message,
   });
 
   factory ExploreAgentResponse.fromJson(Map<String, dynamic> json) {
-    final placesJson = json['recommendedPlaces'];
+    final placesJson = json['recommended_places'] ?? json['recommendedPlaces'];
+    final isDoneJson = json['is_done'];
+    final needsMoreInfoJson = json['needsMoreInfo'];
     return ExploreAgentResponse(
       recommendedPlaces: placesJson is List
           ? placesJson
@@ -637,16 +640,23 @@ class ExploreAgentResponse {
               .map(RecommendedPlace.fromJson)
               .toList()
           : const [],
-      needsMoreInfo: json['needsMoreInfo'] == true,
-      followUpQuestion: json['followUpQuestion']?.toString() ?? '',
-      needsConfirmation: json['needsConfirmation'] == true,
+      isDone: isDoneJson is bool
+          ? isDoneJson
+          : needsMoreInfoJson is bool
+              ? !needsMoreInfoJson
+              : false,
+      message: json['message']?.toString() ??
+          json['followUpQuestion']?.toString() ??
+          '',
     );
   }
 
   final List<RecommendedPlace> recommendedPlaces;
-  final bool needsMoreInfo;
-  final String followUpQuestion;
-  final bool needsConfirmation;
+  final bool isDone;
+  final String message;
+
+  bool get needsMoreInfo => !isDone;
+  String get followUpQuestion => message;
 }
 
 class RecommendedPlace {
@@ -666,17 +676,25 @@ class RecommendedPlace {
 
   factory RecommendedPlace.fromJson(Map<Object?, Object?> json) {
     return RecommendedPlace(
-      placeName: json['placeName']?.toString() ?? '',
-      placeType: json['placeType']?.toString() ?? '',
-      googlePlaceId: json['googlePlaceId']?.toString() ?? '',
+      placeName: _readJsonString(json, 'place_name', 'placeName'),
+      placeType: _readJsonString(json, 'place_type', 'placeType'),
+      googlePlaceId: _readJsonString(json, 'google_place_id', 'googlePlaceId'),
       source: json['source']?.toString() ?? 'google_maps',
-      mapsUri: json['mapsUri']?.toString() ?? '',
-      activitySuggestion: json['activitySuggestion']?.toString() ?? '',
+      mapsUri: _readJsonString(json, 'maps_uri', 'mapsUri'),
+      activitySuggestion: _readJsonString(
+        json,
+        'activity_suggestion',
+        'activitySuggestion',
+      ),
       latitude: _number(json['latitude']),
       longitude: _number(json['longitude']),
-      shortReason: json['shortReason']?.toString() ?? '',
-      suitabilityForIntensity: json['suitabilityForIntensity']?.toString() ?? '',
-      matchScore: _number(json['matchScore']),
+      shortReason: _readJsonString(json, 'short_reason', 'shortReason'),
+      suitabilityForIntensity: _readJsonString(
+        json,
+        'suitability_for_intensity',
+        'suitabilityForIntensity',
+      ),
+      matchScore: _number(json['match_score'] ?? json['matchScore']),
     );
   }
 
@@ -726,6 +744,10 @@ double _number(Object? value) {
     return value.toDouble();
   }
   return double.tryParse(value?.toString() ?? '') ?? 0;
+}
+
+String _readJsonString(Map<Object?, Object?> json, String key, String legacyKey) {
+  return json[key]?.toString() ?? json[legacyKey]?.toString() ?? '';
 }
 
 PoiCategory _categoryFromPlaceType(String value) {
@@ -805,42 +827,55 @@ List<RouteLatLng> _decodePolyline(String encoded) {
 const _exploreAgentPrompt = '''
 You are WanderJoy's Explore Agent.
 
-Your role is to recommend real nearby places and activities based on the user's natural-language preferences.
+你作为一个旅游助手，要给用户推荐定制化的旅游目的地。你的任务就是先通过语音输入的文本和以下的基本信息收集用户的基本数据，当你没有得到足够的数据（即 is_done == false），你就继续用 message to user 来获取足够信息。当你觉得收集到足够信息后，再去调用 mcp 获取推荐地点的 POI。在结束的时候（即 is_done == true）用规定的格式返回 POI。
+
+如下是用户的一些基本信息：
+经度 {{state.current_location_lng}}
+纬度 {{state.current_location_lat}}
+用户的兴趣 {{state.profile_interests}}，还有用户预期的旅游强度是 {{state.preferred_intensity}}
+
+The user input is provided as JSON:
+- input_as_text: voice input transcribed to text
+- profile_interests
+- preferred_intensity
+- current_location_lat
+- current_location_lng
+- current_location_name
+- profile_bio
+- response_language: the language chosen from the user's first conversation message
 
 You must use the google_maps MCP tools to find real places before recommending any place.
 Do not recommend, name, rank, or describe a real-world place unless it was returned by google_maps.
 Do not invent real-time ratings, live distance, coordinates, opening hours, phone numbers, or reviews unless they are returned by google_maps.
 
-The user message is provided inside a JSON object as input_as_text. Other fields are app state.
-
 Required information:
-- exploration location, either explicit in the user's message or provided by location state variables
+- exploration location, either explicit in input_as_text or provided by current_location_lat/current_location_lng/current_location_name
 - interests or an inferred exploration preference
-- travelIntensity, either explicit, provided by preferredintensity, or clearly inferred from wording
+- travel intensity, either explicit, provided by preferred_intensity, or clearly inferred from wording
 
 Location rules:
-- Location can be a city, area, landmark, address, postcode, or place mentioned in input_as_text, such as "London", "伦敦", "Tokyo Station", "near Shibuya", "E20 1LZ", or "上海静安寺".
+- Location can be a city, area, landmark, address, postcode, or place mentioned in input_as_text.
 - If input_as_text contains a location, use that as the exploration location and do not ask for coordinates.
 - If both textual location and coordinates are available, prefer the textual location when the user clearly names it.
 - If the user says "nearby" after mentioning a city, area, landmark, or address, interpret nearby as near that mentioned location.
-- If only currentlocationlat and currentlocationlng are provided, use them for nearby search.
-- Ask for location only if no textual location, no currentlocationname, and no usable coordinates are available.
+- If only current_location_lat and current_location_lng are provided, use them for nearby search.
+- Ask for location only if no textual location, no current_location_name, and no usable coordinates are available.
 
 Preference priority rules:
 - Explicit user interests always have highest priority.
 - The user's latest input_as_text has priority over saved profile fields when they conflict.
-- Saved profile interests, bio, and preferredintensity are helpful background context, not hard constraints.
-- If the user mentions "art", "艺术", "gallery", "museum", "exhibition", "dance", "舞蹈", "performance", "演出", "展览", "画廊", "美术馆", or similar words, the search must focus on those related places and activities.
+- Saved profile interests, bio, and preferred_intensity are helpful background context, not hard constraints.
+- If the user mentions art, gallery, museum, exhibition, dance, performance, 艺术, 美术馆, 博物馆, 展览, 舞蹈, 演出, or similar words, the search must focus on those related places and activities.
 - Do not replace explicit interests with generic categories like parks, cafes, bars, or attractions unless the user also asked for them.
 - Cafes, parks, bars, and general attractions may only be included if they are clearly related to the explicit interest.
 
 Do not require the user to use exact words like relaxed, medium, or active.
-Infer travelIntensity only when the user's wording clearly implies energy level.
-- relaxed: tired, exhausted, sleepy, long studying, low energy, want to chill, chill out, casual walk, quiet, slow, nearby, easy, not too much walking, "好累", "累", "随便转转", "放松", "轻松", "不想太累", "休息一下"
-- medium: normal energy, balanced plan, some walking, explore a bit, "普通", "适中", "都可以", "逛逛"
-- active: energetic, want adventure, lots of walking, packed day, hiking, sports, "很有精力", "想多玩点", "暴走", "挑战"
+Infer travel intensity only when the user's wording clearly implies energy level.
+- relaxed: tired, exhausted, sleepy, long studying, low energy, want to chill, casual walk, quiet, slow, nearby, easy, not too much walking, 好累, 累, 随便转转, 放松, 轻松, 不想太累, 休息一下
+- medium: normal energy, balanced plan, some walking, explore a bit, 普通, 适中, 都可以, 逛逛
+- active: energetic, want adventure, lots of walking, packed day, hiking, sports, 很有精力, 想多玩点, 暴走, 挑战
 
-If travelIntensity is not provided by profile and cannot be clearly inferred, ask one short follow-up question instead of recommending places.
+If travel intensity is not provided by profile and cannot be clearly inferred, ask one short follow-up question instead of recommending places.
 Do not default to relaxed just because the user says "nearby".
 
 Search query rules:
@@ -860,62 +895,57 @@ Tool use requirements:
 Recommend exactly 3 suitable places. Keep the tool work small and fast.
 
 For each recommended place, include:
-- placeName
-- placeType
-- googlePlaceId
+- place_name
+- place_type
+- google_place_id
 - source: "google_maps"
-- mapsUri, or an empty string if not returned by google_maps
-- activitySuggestion
+- maps_uri, or an empty string if not returned by google_maps
+- activity_suggestion
 - latitude
 - longitude
-- shortReason
-- suitabilityForIntensity
-- matchScore from 0 to 1
+- short_reason
+- suitability_for_intensity
+- match_score from 0 to 1
 
 If required information is missing:
-- recommendedPlaces must be []
-- needsMoreInfo must be true
-- followUpQuestion must contain one short question
-- needsConfirmation must be false
+- recommended_places must be []
+- is_done must be false
+- message must contain one short question
 
 If recommendations are ready:
-- recommendedPlaces must contain 3 to 5 places
-- needsMoreInfo must be false
-- followUpQuestion must be ""
-- needsConfirmation must be true
+- recommended_places must contain 3 places
+- is_done must be true
+- message must be a concise confirmation or summary
 
-Respond in the same language as the user's input.
+Language rules:
+- All human-facing text fields must be written in response_language.
+- This includes followUpQuestion, activitySuggestion, shortReason, suitabilityForIntensity, and route/recommendation summaries.
+- Keep real place names exactly as returned by Google Maps, but translate your explanations.
+- Do not switch languages because the app UI, profile text, or prior assistant messages use another language.
 Return only JSON matching the schema.
 ''';
 
 const _fastExploreAgentPrompt = '''
 You are WanderJoy's fast Google Maps recommendation helper.
 
-The user input is a JSON object with input_as_text, profileinterests, preferredintensity, profileBio, currentlocationlat, currentlocationlng, and currentlocationname.
+The user input is a JSON object with input_as_text, profile_interests, preferred_intensity, profile_bio, current_location_lat, current_location_lng, current_location_name, and response_language.
 
 You must use google_maps before returning any place. Do not invent places.
 
-Make one focused Google Maps search using the user's clearest location and food/activity preference. Prefer maps_search_places. If coordinates are available and the user asks for nearby places, maps_search_nearby is also acceptable. Do not use maps_place_details unless the result has no coordinates.
+Make one focused Google Maps search using the user's clearest location and activity preference. Prefer maps_search_places. If coordinates are available and the user asks for nearby places, maps_search_nearby is also acceptable. Do not use maps_place_details unless the result has no coordinates.
 
 Return exactly 3 real places when possible. Prefer local, smaller, non-chain places when the user asks for local or non-touristy options.
 
-For each place, fill:
-- placeName
-- placeType
-- googlePlaceId
-- source: "google_maps"
-- mapsUri, or empty string if not returned
-- activitySuggestion
-- latitude
-- longitude
-- shortReason
-- suitabilityForIntensity
-- matchScore from 0 to 1
+For each place, fill: place_name, place_type, google_place_id, source, maps_uri, activity_suggestion, latitude, longitude, short_reason, suitability_for_intensity, match_score.
 
-If no suitable results are found, return recommendedPlaces: [], needsMoreInfo: true, followUpQuestion: one short question.
-If recommendations are ready, needsMoreInfo must be false, followUpQuestion must be "", and needsConfirmation must be true.
+If no suitable results are found, return recommended_places: [], is_done: false, message: one short question.
+If recommendations are ready, is_done must be true and message must be a concise confirmation or summary.
 
-Respond in the same language as the user's input.
+Language rules:
+- All human-facing text fields must be written in response_language.
+- This includes followUpQuestion, activitySuggestion, shortReason, and suitabilityForIntensity.
+- Keep real place names exactly as returned by Google Maps, but translate your explanations.
+- Do not switch languages because the app UI, profile text, or prior assistant messages use another language.
 Return only JSON matching the schema.
 ''';
 
@@ -937,20 +967,22 @@ Search rules:
 - Prefer maps_search_places for text search.
 - Use maps_place_details only if the result is missing placeId or coordinates.
 - Return 3 matching places when possible.
-- If no results are found, return recommendedPlaces: [], needsMoreInfo: true, followUpQuestion: "No matching Google Maps places found. Try another search."
+- If no results are found, return recommended_places: [], is_done: false, message: "No matching Google Maps places found. Try another search."
 
 For each place, fill:
-- placeName
-- placeType
-- googlePlaceId
+- place_name
+- place_type
+- google_place_id
 - source: "google_maps"
-- mapsUri, or empty string if not returned
-- activitySuggestion: a short neutral suggestion for adding this place to the route
+- maps_uri, or empty string if not returned
+- activity_suggestion: a short neutral suggestion for adding this place to the route
 - latitude
 - longitude
-- shortReason: a short reason based on the search result
-- suitabilityForIntensity: "medium"
-- matchScore from 0 to 1
+- short_reason: a short reason based on the search result
+- suitability_for_intensity: "medium"
+- match_score from 0 to 1
+
+If matching places are returned, is_done must be true and message must be "".
 
 Return only JSON matching the schema.
 ''';
@@ -982,58 +1014,79 @@ const _exploreAgentOutputSchema = <String, dynamic>{
   'type': 'object',
   'additionalProperties': false,
   'properties': {
-    'recommendedPlaces': {
+    'recommended_places': {
       'type': 'array',
+      'default': [],
       'items': {
         'type': 'object',
         'additionalProperties': false,
         'properties': {
-          'placeName': {'type': 'string'},
-          'placeType': {'type': 'string'},
-          'googlePlaceId': {'type': 'string'},
+          'place_name': {
+            'type': 'string',
+            'default': '',
+          },
+          'place_type': {
+            'type': 'string',
+            'default': '',
+          },
+          'google_place_id': {
+            'type': 'string',
+            'default': '',
+          },
           'source': {
             'type': 'string',
             'enum': ['google_maps'],
+            'default': '',
           },
-          'mapsUri': {'type': 'string'},
-          'activitySuggestion': {'type': 'string'},
+          'maps_uri': {
+            'type': 'string',
+            'default': '',
+          },
+          'activity_suggestion': {
+            'type': 'string',
+            'default': '',
+          },
           'latitude': {'type': 'number'},
           'longitude': {'type': 'number'},
-          'shortReason': {'type': 'string'},
-          'suitabilityForIntensity': {
+          'short_reason': {
+            'type': 'string',
+            'default': '',
+          },
+          'suitability_for_intensity': {
             'type': 'string',
             'enum': ['relaxed', 'medium', 'active'],
+            'default': '',
           },
-          'matchScore': {
-            'type': 'number',
-            'minimum': 0,
-            'maximum': 1,
-          },
+          'match_score': {'type': 'number'},
         },
         'required': [
-          'placeName',
-          'placeType',
-          'googlePlaceId',
+          'place_name',
+          'place_type',
+          'google_place_id',
           'source',
-          'mapsUri',
-          'activitySuggestion',
+          'maps_uri',
+          'activity_suggestion',
           'latitude',
           'longitude',
-          'shortReason',
-          'suitabilityForIntensity',
-          'matchScore',
+          'short_reason',
+          'suitability_for_intensity',
+          'match_score',
         ],
       },
     },
-    'needsMoreInfo': {'type': 'boolean'},
-    'followUpQuestion': {'type': 'string'},
-    'needsConfirmation': {'type': 'boolean'},
+    'is_done': {
+      'type': 'boolean',
+      'default': false,
+    },
+    'message': {
+      'type': 'string',
+      'default': '',
+    },
   },
   'required': [
-    'recommendedPlaces',
-    'needsMoreInfo',
-    'followUpQuestion',
-    'needsConfirmation',
+    'recommended_places',
+    'is_done',
+    'message',
   ],
 };
 

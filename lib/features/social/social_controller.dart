@@ -7,7 +7,16 @@ import 'package:geolocator/geolocator.dart';
 import '../../shared/data/mock_data.dart';
 import '../../shared/models/app_models.dart';
 
-enum SocialStep { nearby, profile, request, setup, nfc, edit, sharedTrip }
+enum SocialStep {
+  nearby,
+  profile,
+  request,
+  setup,
+  nfc,
+  sharedExplore,
+  edit,
+  sharedTrip,
+}
 
 enum RequestStatus { none, sent, accepted, rejected }
 
@@ -43,10 +52,25 @@ class SocialController extends ChangeNotifier {
   Timer? _requestTimer;
   Timer? _nfcTimer;
   final Random _random = Random();
+  String? _sharedRouteId;
 
   String get meetingPoint => 'Nearby Cafe Meeting Spot';
 
   int get selectedUserTimeCount => meetingTimeOptions.length;
+
+  ExploreTripContext get sharedExploreContext {
+    final buddy = selectedUser;
+    return ExploreTripContext(
+      tripType: TripType.social,
+      buddyId: buddy?.id,
+      buddyName: buddy?.name,
+      buddyAvatar: buddy?.avatar,
+      buddyBio: buddy?.bio,
+      buddyInterests: buddy?.interests ?? const [],
+      buddyPreferredIntensity: buddy?.energyLevel,
+      sharedRouteId: _sharedRouteId,
+    );
+  }
 
   List<UserProfile> get nearbyUsers => _rankLocalMatches(
     currentUserId: MockData.currentUserId,
@@ -154,6 +178,14 @@ class SocialController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void openSharedExplore() {
+    nfcScanning = false;
+    _sharedRouteId ??=
+        'shared-${MockData.currentUserId}-${selectedUser?.id ?? 'buddy'}-${DateTime.now().millisecondsSinceEpoch}';
+    step = SocialStep.sharedExplore;
+    notifyListeners();
+  }
+
   void endSharedTrip() {
     _sharedTripTimer?.cancel();
     _requestTimer?.cancel();
@@ -164,6 +196,7 @@ class SocialController extends ChangeNotifier {
     sharedPois.clear();
     searchQuery = '';
     nfcScanning = false;
+    _sharedRouteId = null;
     userPosition = const Offset(0.30, 0.30);
     buddyPosition = const Offset(0.35, 0.35);
     step = SocialStep.nearby;

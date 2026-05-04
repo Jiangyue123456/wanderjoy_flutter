@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -22,7 +23,14 @@ import 'voice_transcription_service.dart';
 const _googleMapsApiKey = String.fromEnvironment('GOOGLE_MAPS_API_KEY');
 
 class ExploreScreen extends StatefulWidget {
-  const ExploreScreen({super.key});
+  const ExploreScreen({
+    super.key,
+    this.tripContext = const ExploreTripContext(),
+    this.initialStep = ExploreStep.home,
+  });
+
+  final ExploreTripContext tripContext;
+  final ExploreStep initialStep;
 
   @override
   State<ExploreScreen> createState() => _ExploreScreenState();
@@ -31,6 +39,7 @@ class ExploreScreen extends StatefulWidget {
 class _ExploreScreenState extends State<ExploreScreen> {
   late final ExploreController _controller;
   final AudioRecorder _recorder = AudioRecorder();
+  final ImagePicker _imagePicker = ImagePicker();
   final VoiceTranscriptionService _voiceTranscriptionService =
       const VoiceTranscriptionService();
   final TextEditingController _chatTextController = TextEditingController();
@@ -39,7 +48,10 @@ class _ExploreScreenState extends State<ExploreScreen> {
   @override
   void initState() {
     super.initState();
-    _controller = ExploreController();
+    _controller = ExploreController(
+      tripContext: widget.tripContext,
+      initialStep: widget.initialStep,
+    );
   }
 
   @override
@@ -244,6 +256,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
           _applyProfileAfterBuild(
             snapshot.data?.data(),
             fallbackName: user.displayName,
+            fallbackAvatar: user.photoURL,
           );
         }
 
@@ -258,17 +271,24 @@ class _ExploreScreenState extends State<ExploreScreen> {
   void _applyProfileAfterBuild(
     Map<String, dynamic>? data, {
     String? fallbackName,
+    String? fallbackAvatar,
   }) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) {
         return;
       }
-      _controller.applyProfile(data, fallbackName: fallbackName);
+      _controller.applyProfile(
+        data,
+        fallbackName: fallbackName,
+        fallbackAvatar: fallbackAvatar,
+      );
     });
   }
 
   Widget _inputContent(BuildContext context, {required bool isProfileLoading}) {
     final visibleError = _visibleExploreError();
+    final isSocial = _controller.tripContext.isSocial;
+    final buddyName = _controller.tripContext.buddyName ?? 'your friend';
     return ListView(
       key: const ValueKey('explore-input'),
       padding: const EdgeInsets.fromLTRB(
@@ -279,10 +299,30 @@ class _ExploreScreenState extends State<ExploreScreen> {
       ),
       children: [
         _FlowHeader(
-          title: 'Talk with AI',
+          title: isSocial ? 'Plan Together' : 'Talk with AI',
           onBack: () => _controller.goTo(ExploreStep.home),
         ),
         const SizedBox(height: AppSpacing.lg),
+        if (isSocial) ...[
+          DopamineCard(
+            child: Row(
+              children: [
+                _ExploreBuddyAvatars(
+                  meAvatar: _controller.profileAvatar,
+                  buddyAvatar: _controller.tripContext.buddyAvatar,
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Text(
+                    'I will recommend places and plan a route based on your and $buddyName\'s preferences.',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+        ],
         DopamineCard(
           padding: const EdgeInsets.all(0),
           child: Column(
@@ -326,6 +366,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
                           Text(
                             isProfileLoading
                                 ? 'Loading your saved profile...'
+                                : isSocial
+                                ? 'Using both profiles, shared interests, and pace.'
                                 : 'Using profile interests, bio, and pace.',
                             style: Theme.of(context).textTheme.bodyMedium,
                           ),
@@ -350,7 +392,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
                       onChanged: _controller.setChatInput,
                       onSubmitted: (_) => _sendTypedMessage(),
                       decoration: InputDecoration(
-                        hintText: 'Tell WanderJoy what you want to explore...',
+                        hintText: isSocial
+                            ? 'Tell WanderJoy what both of you want to explore...'
+                            : 'Tell WanderJoy what you want to explore...',
                         prefixIcon: const Icon(Icons.chat_bubble_outline_rounded),
                         suffixIcon: IconButton(
                           onPressed: _sendTypedMessage,
@@ -412,29 +456,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
               ),
             ],
           ),
-        ),
-        const SizedBox(height: AppSpacing.lg),
-        Row(
-          children: [
-            Expanded(
-              child: _ContextChip(
-                icon: Icons.favorite_rounded,
-                label: _controller.profileInterestLabels.join(', '),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _ContextChip(
-                icon: Icons.directions_walk_rounded,
-                label: _controller.energy.label,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        _ContextChip(
-          icon: Icons.notes_rounded,
-          label: _controller.profileBio,
         ),
         const SizedBox(height: AppSpacing.xl),
         if (visibleError != null) ...[
@@ -603,13 +624,18 @@ class _ExploreScreenState extends State<ExploreScreen> {
             pois: pois,
             routePlan: routePlan,
             navigationActive: _controller.isNavigationActive,
+            tripContext: _controller.tripContext,
             routeOriginLat:
                 _controller.navigationOriginLat ?? _controller.currentLocationLat,
             routeOriginLng:
                 _controller.navigationOriginLng ?? _controller.currentLocationLng,
             currentLat: _controller.currentLocationLat,
             currentLng: _controller.currentLocationLng,
+            navigationBearing: _controller.navigationBearingDegrees,
+            routeMemories: _controller.routeMemories,
+            profileAvatar: _controller.profileAvatar,
             onPoiTap: (poi) => _showPoiDetails(context, poi),
+            onMemoryTap: (memory) => _showRouteMemoryDetails(context, memory),
           ),
         ),
         Positioned(
@@ -621,7 +647,13 @@ class _ExploreScreenState extends State<ExploreScreen> {
             children: [
               Row(
                 children: [
-                  _SmallBadge(routePlan == null ? 'Route Preview' : 'Google Maps'),
+                  _SmallBadge(
+                    routePlan == null
+                        ? (_controller.tripContext.isSocial
+                              ? 'Shared Route Preview'
+                              : 'Route Preview')
+                        : 'Google Maps',
+                  ),
                   const Spacer(),
                   FilledButton.tonalIcon(
                     onPressed: _openRouteInMaps,
@@ -656,7 +688,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
                   children: [
                     Expanded(
                       child: Text(
-                        'Fastest Route',
+                        _controller.tripContext.isSocial
+                            ? 'Fastest Shared Route'
+                            : 'Fastest Route',
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
                     ),
@@ -678,55 +712,59 @@ class _ExploreScreenState extends State<ExploreScreen> {
                   ),
                 ],
                 const SizedBox(height: AppSpacing.md),
-                SizedBox(
-                  height: 52,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: pois.length,
-                    separatorBuilder: (_, _) => const Icon(
-                      Icons.chevron_right_rounded,
-                      color: AppColors.muted,
-                    ),
-                    itemBuilder: (context, index) => _RouteStopChip(
-                      index: index + 1,
-                      name: pois[index].name,
-                      onTap: () => _showPoiDetails(context, pois[index]),
+                if (_controller.isNavigationActive)
+                  _RouteMemoryCaptureCard(
+                    memoryCount: _controller.routeMemories.length,
+                    onCapture: _captureRouteMemory,
+                  )
+                else
+                  SizedBox(
+                    height: 52,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: pois.length,
+                      separatorBuilder: (_, _) => const Icon(
+                        Icons.chevron_right_rounded,
+                        color: AppColors.muted,
+                      ),
+                      itemBuilder: (context, index) => _RouteStopChip(
+                        index: index + 1,
+                        name: pois[index].name,
+                        onTap: () => _showPoiDetails(context, pois[index]),
+                      ),
                     ),
                   ),
-                ),
                 const SizedBox(height: AppSpacing.md),
                 Row(
                   children: [
-                    IconButton.outlined(
-                      onPressed: () => _controller.goTo(ExploreStep.customize),
-                      icon: const Icon(Icons.edit_outlined),
-                      tooltip: 'Edit places',
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: PrimaryButton(
-                        label: _controller.isNavigationActive
-                            ? 'Navigation Active'
-                            : 'Start Navigation',
-                        icon: Icons.navigation_rounded,
-                        onPressed: _controller.isNavigationActive
-                            ? null
-                            : _controller.startNavigation,
+                    if (!_controller.isNavigationActive) ...[
+                      IconButton.outlined(
+                        onPressed: () => _controller.goTo(ExploreStep.customize),
+                        icon: const Icon(Icons.edit_outlined),
+                        tooltip: 'Edit places',
                       ),
+                      const SizedBox(width: 10),
+                    ],
+                    Expanded(
+                      child: _controller.isNavigationActive
+                          ? OutlinedButton.icon(
+                              onPressed: _controller.endNavigation,
+                              icon: const Icon(Icons.stop_circle_outlined),
+                              label: const Text('End Navigation'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppColors.primary,
+                                side: const BorderSide(color: AppColors.primary),
+                                padding: const EdgeInsets.symmetric(vertical: 15),
+                              ),
+                            )
+                          : PrimaryButton(
+                              label: 'Start Navigation',
+                              icon: Icons.navigation_rounded,
+                              onPressed: _controller.startNavigation,
+                            ),
                     ),
                   ],
                 ),
-                if (_controller.isNavigationActive) ...[
-                  const SizedBox(height: AppSpacing.sm),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: _controller.endNavigation,
-                      icon: const Icon(Icons.stop_circle_outlined),
-                      label: const Text('End Navigation'),
-                    ),
-                  ),
-                ],
               ],
             ),
           ),
@@ -875,6 +913,48 @@ class _ExploreScreenState extends State<ExploreScreen> {
     return const SizedBox.shrink(key: ValueKey('explore-summary'));
   }
 
+  Future<void> _captureRouteMemory() async {
+    final photo = await _imagePicker.pickImage(
+      source: ImageSource.camera,
+      imageQuality: 86,
+      maxWidth: 1600,
+    );
+    if (photo == null || !mounted) {
+      return;
+    }
+
+    final documentsDir = await getApplicationDocumentsDirectory();
+    final fileName =
+        'wanderjoy_memory_${DateTime.now().millisecondsSinceEpoch}.jpg';
+    final savedPhoto = await File(photo.path).copy('${documentsDir.path}/$fileName');
+    if (!mounted) {
+      return;
+    }
+
+    final note = await _showMemoryNoteSheet(savedPhoto);
+    if (note == null || !mounted) {
+      return;
+    }
+
+    _controller.saveRouteMemory(photoPath: savedPhoto.path, note: note);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Saved to Memory')),
+    );
+  }
+
+  Future<String?> _showMemoryNoteSheet(File photoFile) {
+    return showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) => _MemoryNoteSheet(photoFile: photoFile),
+    );
+  }
+
   void _showPoiDetails(BuildContext context, Poi poi) {
     _controller.loadGooglePlaceDetails(poi);
     showModalBottomSheet<void>(
@@ -901,6 +981,90 @@ class _ExploreScreenState extends State<ExploreScreen> {
     );
   }
 
+  void _showRouteMemoryDetails(BuildContext context, MemoryEntry memory) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) => SafeArea(
+        child: Stack(
+          children: [
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(context).height * 0.82,
+              ),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(18),
+                      child: memory.photo.startsWith('http')
+                          ? Image.network(
+                              memory.photo,
+                              width: double.infinity,
+                              height: 280,
+                              fit: BoxFit.cover,
+                            )
+                          : Image.file(
+                              File(memory.photo),
+                              width: double.infinity,
+                              height: 280,
+                              fit: BoxFit.cover,
+                            ),
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    Text(
+                      memory.title,
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${memory.timestamp} - ${memory.location}',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(AppSpacing.md),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF7F7F7),
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: Text(
+                        memory.text,
+                        style: Theme.of(context).textTheme.bodyLarge,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Positioned(
+              top: AppSpacing.md,
+              left: AppSpacing.md,
+              child: IconButton.filled(
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.arrow_back_rounded),
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: AppColors.ink,
+                  shadowColor: Colors.black.withValues(alpha: 0.18),
+                  elevation: 6,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
   Future<void> _openPoiInMaps(Poi poi) async {
     final uri = Uri.parse(_googleMapsUrlFor(poi));
     if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
@@ -974,7 +1138,7 @@ class _VoiceMessageBubble extends StatelessWidget {
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-          color: isAi ? AppColors.backgroundSoft : AppColors.primarySoft,
+          color: isAi ? AppColors.backgroundSoft : AppColors.secondarySoft,
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(18),
             topRight: const Radius.circular(18),
@@ -985,7 +1149,7 @@ class _VoiceMessageBubble extends StatelessWidget {
         child: Text(
           text,
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: isAi ? AppColors.ink : AppColors.primary,
+            color: isAi ? AppColors.ink : const Color(0xFF19756E),
             fontWeight: FontWeight.w700,
           ),
         ),
@@ -1085,6 +1249,89 @@ class _ContextChip extends StatelessWidget {
   }
 }
 
+class _MemoryNoteSheet extends StatefulWidget {
+  const _MemoryNoteSheet({required this.photoFile});
+
+  final File photoFile;
+
+  @override
+  State<_MemoryNoteSheet> createState() => _MemoryNoteSheetState();
+}
+
+class _MemoryNoteSheetState extends State<_MemoryNoteSheet> {
+  late final TextEditingController _noteController;
+
+  @override
+  void initState() {
+    super.initState();
+    _noteController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _noteController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: FractionallySizedBox(
+        heightFactor: 0.58,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(18),
+                child: Image.file(
+                  widget.photoFile,
+                  width: double.infinity,
+                  height: 96,
+                  fit: BoxFit.cover,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                'Add a memory note',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              TextField(
+                controller: _noteController,
+                minLines: 2,
+                maxLines: 3,
+                textInputAction: TextInputAction.done,
+                decoration: const InputDecoration(
+                  hintText: 'What happened here?',
+                  filled: true,
+                  fillColor: Color(0xFFF7F7F7),
+                  contentPadding: EdgeInsets.all(14),
+                  border: OutlineInputBorder(
+                    borderSide: BorderSide.none,
+                    borderRadius: BorderRadius.all(Radius.circular(18)),
+                  ),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              PrimaryButton(
+                label: 'Save Memory',
+                icon: Icons.bookmark_add_rounded,
+                onPressed: () {
+                  Navigator.of(context).pop(_noteController.text);
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _PoiRow extends StatelessWidget {
   const _PoiRow({
     required this.poi,
@@ -1128,15 +1375,6 @@ class _PoiRow extends StatelessWidget {
                             poi.name,
                             style: Theme.of(context).textTheme.titleMedium,
                           ),
-                        ),
-                        const Icon(
-                          Icons.auto_awesome_rounded,
-                          size: 16,
-                          color: AppColors.accent,
-                        ),
-                        Text(
-                          'Match ${(poi.matchScore * 100).round()}%',
-                          style: Theme.of(context).textTheme.labelSmall,
                         ),
                       ],
                     ),
@@ -1231,9 +1469,6 @@ class _PoiDetailsSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final matchPercent = poi.matchScore > 0
-        ? '${(poi.matchScore * 100).round()}%'
-        : '${(poi.rating / 5 * 100).round()}%';
     final rating = poi.googleRating ?? poi.rating;
 
     return SafeArea(
@@ -1305,10 +1540,6 @@ class _PoiDetailsSheet extends StatelessWidget {
               spacing: 8,
               runSpacing: 8,
               children: [
-                _InlineInfo(
-                  icon: Icons.auto_awesome_rounded,
-                  label: 'Match $matchPercent',
-                ),
                 _InlineInfo(
                   icon: Icons.star_rounded,
                   label: poi.userRatingsTotal == null
@@ -1453,26 +1684,139 @@ class _DetailBlock extends StatelessWidget {
   }
 }
 
+class _ExploreBuddyAvatars extends StatelessWidget {
+  const _ExploreBuddyAvatars({
+    required this.meAvatar,
+    required this.buddyAvatar,
+  });
+
+  final String meAvatar;
+  final String? buddyAvatar;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 76,
+      height: 54,
+      child: Stack(
+        children: [
+          Positioned(
+            left: 0,
+            top: 3,
+            child: CircleAvatar(
+              radius: 25,
+              backgroundColor: Colors.white,
+              child: ClipOval(
+                child: _SmallRouteAvatar(
+                  path: meAvatar,
+                  fallbackColor: AppColors.primary,
+                  fallbackText: 'Y',
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            right: 0,
+            top: 3,
+            child: CircleAvatar(
+              radius: 25,
+              backgroundColor: Colors.white,
+              child: ClipOval(
+                child: _SmallRouteAvatar(
+                  path: buddyAvatar ?? '',
+                  fallbackColor: AppColors.secondary,
+                  fallbackText: 'F',
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SmallRouteAvatar extends StatelessWidget {
+  const _SmallRouteAvatar({
+    required this.path,
+    required this.fallbackColor,
+    required this.fallbackText,
+  });
+
+  final String path;
+  final Color fallbackColor;
+  final String fallbackText;
+
+  @override
+  Widget build(BuildContext context) {
+    final trimmed = path.trim();
+    if (trimmed.startsWith('http')) {
+      return Image.network(
+        trimmed,
+        width: 46,
+        height: 46,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => _fallback(),
+      );
+    }
+    if (trimmed.isNotEmpty && File(trimmed).existsSync()) {
+      return Image.file(
+        File(trimmed),
+        width: 46,
+        height: 46,
+        fit: BoxFit.cover,
+      );
+    }
+    return _fallback();
+  }
+
+  Widget _fallback() {
+    return Container(
+      width: 46,
+      height: 46,
+      color: fallbackColor,
+      alignment: Alignment.center,
+      child: Text(
+        fallbackText,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+}
+
 class _RouteMapBackground extends StatelessWidget {
   const _RouteMapBackground({
     required this.pois,
     required this.routePlan,
     required this.navigationActive,
+    required this.tripContext,
     required this.routeOriginLat,
     required this.routeOriginLng,
     required this.currentLat,
     required this.currentLng,
+    required this.navigationBearing,
+    required this.routeMemories,
+    required this.profileAvatar,
     required this.onPoiTap,
+    required this.onMemoryTap,
   });
 
   final List<Poi> pois;
   final ExploreRoutePlan? routePlan;
   final bool navigationActive;
+  final ExploreTripContext tripContext;
   final double? routeOriginLat;
   final double? routeOriginLng;
   final double? currentLat;
   final double? currentLng;
+  final double navigationBearing;
+  final List<MemoryEntry> routeMemories;
+  final String profileAvatar;
   final ValueChanged<Poi> onPoiTap;
+  final ValueChanged<MemoryEntry> onMemoryTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1480,8 +1824,16 @@ class _RouteMapBackground extends StatelessWidget {
     if (html != null && (Platform.isAndroid || Platform.isIOS)) {
       return _EmbeddedRouteMap(
         html: html,
-        onMarkerTap: (id) {
-          final matches = pois.where((poi) => poi.id == id);
+        onMarkerTap: (message) {
+          if (message.startsWith('memory:')) {
+            final id = message.substring(7);
+            final matches = routeMemories.where((memory) => memory.id == id);
+            if (matches.isNotEmpty) {
+              onMemoryTap(matches.first);
+            }
+            return;
+          }
+          final matches = pois.where((poi) => poi.id == message);
           if (matches.isNotEmpty) {
             onPoiTap(matches.first);
           }
@@ -1493,6 +1845,7 @@ class _RouteMapBackground extends StatelessWidget {
       pois: pois,
       routePlan: routePlan,
       navigationActive: navigationActive,
+      tripContext: tripContext,
       currentLat: currentLat,
       currentLng: currentLng,
     );
@@ -1513,6 +1866,13 @@ class _RouteMapBackground extends StatelessWidget {
           };
     final liveLocation = currentLat != null && currentLng != null
         ? {'lat': currentLat, 'lng': currentLng}
+        : null;
+    final socialStart = tripContext.isSocial
+        ? {
+            'meAvatar': _imageSrc(profileAvatar),
+            'buddyName': tripContext.buddyName ?? 'Friend',
+            'buddyAvatar': tripContext.buddyAvatar ?? '',
+          }
         : null;
     final destination = {
       'lat': routePois.last.lat,
@@ -1536,6 +1896,19 @@ class _RouteMapBackground extends StatelessWidget {
     }).toList();
     final waypoints = waypointPois
         .map((poi) => {'lat': poi.lat, 'lng': poi.lng})
+        .toList();
+    final memoryPins = routeMemories
+        .where((memory) => memory.lat != null && memory.lng != null)
+        .map(
+          (memory) => {
+            'id': memory.id,
+            'lat': memory.lat,
+            'lng': memory.lng,
+            'title': memory.title,
+            'text': memory.text,
+            'photoSrc': _memoryPhotoSrc(memory),
+          },
+        )
         .toList();
 
     final html = '''
@@ -1586,7 +1959,106 @@ class _RouteMapBackground extends StatelessWidget {
         color: white;
         font-size: 12px;
         font-weight: 900;
-        padding: 5px 9px;
+        height: 34px;
+        line-height: 34px;
+        min-width: 48px;
+        padding: 0 9px 0 28px;
+        position: relative;
+      }
+      .you-arrow {
+        display: none;
+      }
+      .you-heading {
+        align-items: center;
+        background: #1a73e8;
+        border: 4px solid white;
+        border-radius: 999px;
+        box-shadow: 0 6px 16px rgba(0,0,0,.28);
+        display: flex;
+        height: 38px;
+        justify-content: center;
+        width: 38px;
+      }
+      .you-heading-arrow {
+        border-left: 8px solid transparent;
+        border-right: 8px solid transparent;
+        border-bottom: 19px solid white;
+        height: 0;
+        transform-origin: 50% 62%;
+        width: 0;
+      }
+      .social-start-label {
+        align-items: center;
+        background: #ffffff;
+        border-radius: 999px;
+        box-shadow: 0 8px 18px rgba(0,0,0,.20);
+        display: flex;
+        gap: 4px;
+        padding: 7px 12px 7px 8px;
+      }
+      .social-start-label b {
+        color: #2f2f2f;
+        font-size: 12px;
+        font-weight: 900;
+        margin-left: 4px;
+        white-space: nowrap;
+      }
+      .social-avatar {
+        align-items: center;
+        border: 3px solid #ffffff;
+        border-radius: 999px;
+        color: #ffffff;
+        display: flex;
+        font-size: 12px;
+        font-weight: 900;
+        height: 32px;
+        justify-content: center;
+        overflow: hidden;
+        width: 32px;
+      }
+      .social-avatar.me {
+        background: #ff6b6b;
+      }
+      .social-avatar.buddy {
+        background: #4ecdc4;
+        margin-left: -12px;
+      }
+      .social-avatar img {
+        height: 100%;
+        object-fit: cover;
+        width: 100%;
+      }
+      .memory-pin {
+        align-items: center;
+        background: #ffffff;
+        border: 3px solid #ffffff;
+        border-radius: 999px 999px 999px 4px;
+        box-shadow: 0 8px 18px rgba(0,0,0,.25);
+        cursor: pointer;
+        display: flex;
+        height: 46px;
+        justify-content: center;
+        overflow: hidden;
+        position: relative;
+        transform: rotate(-45deg);
+        width: 46px;
+      }
+      .memory-pin img {
+        height: 62px;
+        object-fit: cover;
+        transform: rotate(45deg) scale(1.08);
+        width: 62px;
+      }
+      .memory-pin-fallback {
+        align-items: center;
+        background: #ff6b6b;
+        color: white;
+        display: flex;
+        font-size: 20px;
+        height: 100%;
+        justify-content: center;
+        transform: rotate(45deg);
+        width: 100%;
       }
     </style>
     <script src="https://maps.googleapis.com/maps/api/js?key=$_googleMapsApiKey&callback=initMap" async defer></script>
@@ -1595,8 +2067,11 @@ class _RouteMapBackground extends StatelessWidget {
       const destination = ${jsonEncode(destination)};
       const waypoints = ${jsonEncode(waypoints)};
       const stops = ${jsonEncode(stops)};
+      const memoryPins = ${jsonEncode(memoryPins)};
       const liveLocation = ${jsonEncode(liveLocation)};
+      const socialStart = ${jsonEncode(socialStart)};
       const navigationActive = $navigationActive;
+      const navigationBearing = $navigationBearing;
 
       function initMap() {
         const map = new google.maps.Map(document.getElementById('map'), {
@@ -1625,9 +2100,17 @@ class _RouteMapBackground extends StatelessWidget {
         });
 
         if (navigationActive && liveLocation) {
-          createMapLabel(map, liveLocation, '<div class="you-label">You</div>');
+          createMapLabel(
+            map,
+            liveLocation,
+            '<div class="you-heading"><span class="you-heading-arrow" style="transform: rotate(' + navigationBearing + 'deg);"></span></div>'
+          );
         } else {
-          createMapLabel(map, { lat: origin.lat, lng: origin.lng }, '<div class="you-label">You</div>');
+          createMapLabel(
+            map,
+            { lat: origin.lat, lng: origin.lng },
+            socialStart ? socialStartHtml(socialStart) : '<div class="you-label">You</div>'
+          );
         }
 
         stops.forEach((stop) => {
@@ -1639,6 +2122,20 @@ class _RouteMapBackground extends StatelessWidget {
             if (window.WanderJoy) {
               window.WanderJoy.postMessage(stop.id);
             }
+            }
+          );
+        });
+        memoryPins.forEach((memory) => {
+          createMapLabel(
+            map,
+            { lat: memory.lat, lng: memory.lng },
+            memory.photoSrc
+              ? '<div class="memory-pin"><img src="' + memory.photoSrc + '" alt=""></div>'
+              : '<div class="memory-pin"><span class="memory-pin-fallback">+</span></div>',
+            () => {
+              if (window.WanderJoy) {
+                window.WanderJoy.postMessage('memory:' + memory.id);
+              }
             }
           );
         });
@@ -1737,9 +2234,13 @@ class _RouteMapBackground extends StatelessWidget {
           onAdd() {
             this.div = document.createElement('div');
             this.div.style.position = 'absolute';
-            this.div.style.transform = 'translate(-50%, -100%)';
             this.div.style.cursor = onClick ? 'pointer' : 'default';
             this.div.innerHTML = html;
+            if (this.div.firstElementChild && this.div.firstElementChild.classList.contains('you-heading')) {
+              this.div.style.transform = 'translate(-50%, -50%)';
+            } else {
+              this.div.style.transform = 'translate(-50%, -100%)';
+            }
             if (onClick) {
               this.div.addEventListener('click', onClick);
             }
@@ -1766,6 +2267,16 @@ class _RouteMapBackground extends StatelessWidget {
         new LabelOverlay().setMap(map);
       }
 
+      function socialStartHtml(value) {
+        const meAvatar = value.meAvatar
+          ? '<img src="' + escapeHtml(value.meAvatar) + '" alt="">'
+          : '<span>Y</span>';
+        const avatar = value.buddyAvatar
+          ? '<img src="' + escapeHtml(value.buddyAvatar) + '" alt="">'
+          : '<span>F</span>';
+        return '<div class="social-start-label"><div class="social-avatar me">' + meAvatar + '</div><div class="social-avatar buddy">' + avatar + '</div><b>Start together</b></div>';
+      }
+
       function escapeHtml(value) {
         return String(value)
           .replace(/&/g, '&amp;')
@@ -1782,6 +2293,25 @@ class _RouteMapBackground extends StatelessWidget {
 </html>
 ''';
     return html;
+  }
+
+  String _memoryPhotoSrc(MemoryEntry memory) {
+    return _imageSrc(memory.photo);
+  }
+
+  String _imageSrc(String path) {
+    if (path.startsWith('http')) {
+      return path;
+    }
+    try {
+      final file = File(path);
+      if (!file.existsSync()) {
+        return '';
+      }
+      return 'data:image/jpeg;base64,${base64Encode(file.readAsBytesSync())}';
+    } on Object {
+      return '';
+    }
   }
 }
 
@@ -1848,6 +2378,7 @@ class _EstimatedRouteMap extends StatelessWidget {
     required this.pois,
     required this.routePlan,
     required this.navigationActive,
+    required this.tripContext,
     required this.currentLat,
     required this.currentLng,
   });
@@ -1855,6 +2386,7 @@ class _EstimatedRouteMap extends StatelessWidget {
   final List<Poi> pois;
   final ExploreRoutePlan? routePlan;
   final bool navigationActive;
+  final ExploreTripContext tripContext;
   final double? currentLat;
   final double? currentLng;
 
@@ -1867,6 +2399,7 @@ class _EstimatedRouteMap extends StatelessWidget {
           pois: pois,
           routePlan: routePlan,
           navigationActive: navigationActive,
+          tripContext: tripContext,
           currentLat: currentLat,
           currentLng: currentLng,
         ),
@@ -1925,6 +2458,109 @@ class _RouteStopChip extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _RouteMemoryCaptureCard extends StatelessWidget {
+  const _RouteMemoryCaptureCard({
+    required this.memoryCount,
+    required this.onCapture,
+  });
+
+  final int memoryCount;
+  final VoidCallback onCapture;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.primarySoft,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.22)),
+      ),
+      child: Row(
+        children: [
+          FilledButton.icon(
+            onPressed: onCapture,
+            icon: const Icon(Icons.photo_camera_rounded),
+            label: const Text('Take Photo'),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              memoryCount == 0
+                  ? 'Capture a moment on this route.'
+                  : '$memoryCount route memories saved',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NavigationCueCard extends StatelessWidget {
+  const _NavigationCueCard({required this.cue});
+
+  final NavigationCue cue;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.primarySoft,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.22)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: const BoxDecoration(
+              color: AppColors.primary,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(cue.icon, color: Colors.white),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  cue.title,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  cue.subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -2301,6 +2937,7 @@ class _RouteMapPainter extends CustomPainter {
     required this.pois,
     required this.routePlan,
     required this.navigationActive,
+    required this.tripContext,
     required this.currentLat,
     required this.currentLng,
   });
@@ -2308,6 +2945,7 @@ class _RouteMapPainter extends CustomPainter {
   final List<Poi> pois;
   final ExploreRoutePlan? routePlan;
   final bool navigationActive;
+  final ExploreTripContext tripContext;
   final double? currentLat;
   final double? currentLng;
 
@@ -2341,10 +2979,23 @@ class _RouteMapPainter extends CustomPainter {
     canvas.drawPath(path, routePaint);
 
     final originPaint = Paint()..color = Colors.blue;
-    canvas.drawCircle(points.first, 8, originPaint);
+    if (tripContext.isSocial) {
+      canvas.drawCircle(
+        points.first.translate(-8, 0),
+        9,
+        Paint()..color = AppColors.primary,
+      );
+      canvas.drawCircle(
+        points.first.translate(8, 0),
+        9,
+        Paint()..color = AppColors.secondary,
+      );
+    } else {
+      canvas.drawCircle(points.first, 8, originPaint);
+    }
     canvas.drawCircle(
       points.first,
-      13,
+      tripContext.isSocial ? 18 : 13,
       Paint()
         ..color = Colors.white
         ..style = PaintingStyle.stroke
@@ -2407,6 +3058,7 @@ class _RouteMapPainter extends CustomPainter {
   bool shouldRepaint(covariant _RouteMapPainter oldDelegate) {
     return oldDelegate.pois != pois ||
         oldDelegate.routePlan != routePlan ||
+        oldDelegate.tripContext != tripContext ||
         oldDelegate.currentLat != currentLat ||
         oldDelegate.currentLng != currentLng;
   }
