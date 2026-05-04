@@ -16,6 +16,12 @@ I also conducted a Wenjuanxing questionnaire survey with 100 valid responses to 
 
 ![User research summary](assets/readme/user_research_summary.png)
 
+## User Personas
+
+Based on the survey insights, I created Lily as a target persona to represent new arrivals who want to understand a city, discover interest-based places, and build meaningful social connections through travel.
+
+![User persona Lily](assets/readme/user_persona_lily.png)
+
 ## Core Features
 
 - Google sign-in with Firebase Authentication
