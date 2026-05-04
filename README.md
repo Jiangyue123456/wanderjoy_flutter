@@ -265,3 +265,7 @@ Firebase must also be configured for Google sign-in, authentication state, Fires
 - Voice input: `record`
 - Maps and location: `google_maps_flutter`, `geolocator`, `url_launcher`, `webview_flutter`
 - Media and local files: `image_picker`, `path_provider`
+
+## Contact
+
+For questions about this project, please contact: jiangyuepei@gmail.com
