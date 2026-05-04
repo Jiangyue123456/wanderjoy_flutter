@@ -16,6 +16,73 @@ Explore Mode uses conversational AI input to understand the user's interests and
 
 The prototype uses Flutter and Dart for the mobile interface, Firebase for authentication and profile storage, OpenAI APIs for AI interaction and voice transcription, Google Maps services for place discovery and routing, and a Fly.io MCP server for map-related tool access.
 
+## How to Run the Application
+
+This project is a Flutter mobile application. It can be run locally on an Android emulator, a connected Android device, or Chrome for web testing.
+
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/Jiangyue123456/wanderjoy_flutter.git
+cd wanderjoy_flutter
+```
+
+### 2. Install Flutter Dependencies
+
+```bash
+flutter pub get
+```
+
+### 3. Add API Keys Securely
+
+The app uses OpenAI and Google Maps services. For security reasons, real API keys are not committed to GitHub. I will send the required assessment testing keys to the module teacher by email. Please check the email provided with this submission.
+
+When running the project, replace the placeholder values below with the private keys received by email:
+
+```bash
+flutter run \
+  --dart-define=OPENAI_API_KEY=YOUR_OPENAI_API_KEY_FROM_EMAIL \
+  --dart-define=GOOGLE_MAPS_API_KEY=YOUR_GOOGLE_MAPS_API_KEY_FROM_EMAIL
+```
+
+Optional model configuration can also be supplied:
+
+```bash
+flutter run \
+  --dart-define=OPENAI_API_KEY=YOUR_OPENAI_API_KEY_FROM_EMAIL \
+  --dart-define=GOOGLE_MAPS_API_KEY=YOUR_GOOGLE_MAPS_API_KEY_FROM_EMAIL \
+  --dart-define=OPENAI_MODEL=gpt-4.1-mini \
+  --dart-define=OPENAI_TRANSCRIBE_MODEL=gpt-4o-mini-transcribe
+```
+
+### 4. Run on Android
+
+Start an Android emulator or connect an Android device, then run:
+
+```bash
+flutter run
+```
+
+If API-powered Explore features are being tested, use the `--dart-define` command shown above.
+
+### 5. Run on Web for Quick Testing
+
+```bash
+flutter run -d chrome \
+  --dart-define=OPENAI_API_KEY=YOUR_OPENAI_API_KEY_FROM_EMAIL \
+  --dart-define=GOOGLE_MAPS_API_KEY=YOUR_GOOGLE_MAPS_API_KEY_FROM_EMAIL
+```
+
+### 6. Basic App Testing Flow
+
+1. Open the app and sign in with Google if required.
+2. Go to Explore Mode and enter a travel request, such as an interest in art, food, culture, or nature.
+3. Review the AI-recommended places, adjust the list if needed, and generate a route.
+4. Start the trip navigation flow and save photos or written notes as memories.
+5. Go to Social Mode to view compatible nearby explorers, review profile and safety information, send a request, set a meeting point and time, complete the NFC-style meeting confirmation, and start a shared Explore flow.
+6. Open Memory Mode to review saved trips with route context, photos, notes, timestamps, and companion information.
+7. Open the Me tab to view or edit profile information used for personalization and matching.
+
 ## Bibliography
 
 1. Flutter. (2026). *Flutter documentation*. Available at: https://docs.flutter.dev/ (Accessed: 5 May 2026).
