@@ -113,7 +113,7 @@ wanderjoy_flutter/
 ### 3. Explore Mode
 
 - Main folder: `lib/features/explore/`
-- Main flow: `input -> customize -> route -> trip -> summary`
+- Main flow: `input -> customize -> route -> trip navigation -> taking pictures and writing notes`
 - Users can type a request or record voice input with `record`.
 - `VoiceTranscriptionService` sends recorded audio to OpenAI Audio Transcription and places the transcript back into the chat input.
 - `ExploreAgentService` sends the user's request, interests, bio, travel intensity, current location, and optional social trip context to the OpenAI Responses API.
