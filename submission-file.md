@@ -66,12 +66,12 @@ flutter run -d chrome \
 ### 6. Basic App Testing Flow
 
 1. Open the app and sign in with Google if required. If Google sign-in does not work in the local testing environment, a Preview Mode is provided so the demo can still be viewed.
-2. Go to Explore Mode and enter a travel request, such as an interest in art, food, culture, or nature.
-3. Review the AI-recommended places, adjust the list if needed, and generate a route.
-4. Start the trip navigation flow and save photos or written notes as memories.
-5. Go to Social Mode to view compatible nearby explorers, review profile and safety information, send a request, set a meeting point and time, complete the NFC-style meeting confirmation, and start a shared Explore flow.
-6. Open Memory Mode to review saved trips with route context, photos, notes, timestamps, and companion information.
-7. Open the Me tab to view or edit profile information used for personalization and matching.
+2. Open the Me tab to view or edit profile information used for personalization and matching.
+3. Go to Explore Mode and enter a travel request by text or voice, such as an interest in art, food, culture, or nature.
+4. Review the AI-recommended places, adjust the list if needed, and generate a route.
+5. Start the trip navigation flow. The Open Map button launches the route in Google Maps, while photos or written notes can be saved inside WanderJoy as memories.
+6. Go to Social Mode to view compatible nearby explorers, review profile and safety information, send a request, set a meeting point and time, complete the NFC-style meeting confirmation, and start a shared Explore flow.
+7. Open Memory Mode to review saved trips with route context, photos, notes, timestamps, and companion information.
 
 ## Bibliography
 
