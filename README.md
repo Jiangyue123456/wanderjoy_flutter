@@ -32,6 +32,93 @@ The user journey shows WanderJoy's three main flows: Explore Mode for personal A
 
 ![Storyboard user journey](assets/readme/storyboard_user_journey_v2.png)
 
+## App Screenshots / Prototype Screens
+
+The screenshots below show the working Flutter prototype through the four main tabs: Explore, Social, Memory, and Me.
+
+### Explore Tab
+
+Explore Mode supports AI-assisted place discovery, route confirmation, trip navigation, and memory capture during the journey.
+
+<table>
+  <tr>
+    <td><img src="assets/readme/screenshots/explore/1.png" width="220" alt="Explore screen 1"></td>
+    <td><img src="assets/readme/screenshots/explore/2.png" width="220" alt="Explore screen 2"></td>
+    <td><img src="assets/readme/screenshots/explore/3.png" width="220" alt="Explore screen 3"></td>
+  </tr>
+  <tr>
+    <td><img src="assets/readme/screenshots/explore/4.png" width="220" alt="Explore screen 4"></td>
+    <td><img src="assets/readme/screenshots/explore/5.png" width="220" alt="Explore screen 5"></td>
+    <td><img src="assets/readme/screenshots/explore/6.png" width="220" alt="Explore screen 6"></td>
+  </tr>
+  <tr>
+    <td><img src="assets/readme/screenshots/explore/7.png" width="220" alt="Explore screen 7"></td>
+    <td><img src="assets/readme/screenshots/explore/8.png" width="220" alt="Explore screen 8"></td>
+    <td><img src="assets/readme/screenshots/explore/9.png" width="220" alt="Explore screen 9"></td>
+  </tr>
+  <tr>
+    <td><img src="assets/readme/screenshots/explore/10.png" width="220" alt="Explore screen 10"></td>
+    <td><img src="assets/readme/screenshots/explore/11.png" width="220" alt="Explore screen 11"></td>
+    <td><img src="assets/readme/screenshots/explore/12.png" width="220" alt="Explore screen 12"></td>
+  </tr>
+  <tr>
+    <td><img src="assets/readme/screenshots/explore/13.png" width="220" alt="Explore screen 13"></td>
+    <td><img src="assets/readme/screenshots/explore/14.png" width="220" alt="Explore screen 14"></td>
+    <td></td>
+  </tr>
+</table>
+
+### Social Tab
+
+Social Mode helps users find compatible nearby explorers, review profile and safety signals, send a join request, choose a meeting point and time, confirm the offline meeting with NFC, and start a shared Explore flow.
+
+<table>
+  <tr>
+    <td><img src="assets/readme/screenshots/social/1.png" width="220" alt="Social screen 1"></td>
+    <td><img src="assets/readme/screenshots/social/2.png" width="220" alt="Social screen 2"></td>
+    <td><img src="assets/readme/screenshots/social/3.png" width="220" alt="Social screen 3"></td>
+  </tr>
+  <tr>
+    <td><img src="assets/readme/screenshots/social/4.png" width="220" alt="Social screen 4"></td>
+    <td><img src="assets/readme/screenshots/social/5.png" width="220" alt="Social screen 5"></td>
+    <td><img src="assets/readme/screenshots/social/6.png" width="220" alt="Social screen 6"></td>
+  </tr>
+  <tr>
+    <td><img src="assets/readme/screenshots/social/7.png" width="220" alt="Social screen 7"></td>
+    <td></td>
+    <td></td>
+  </tr>
+</table>
+
+### Memory Tab
+
+Memory Mode stores route memories with map context, photos, text notes, visited stops, and social companion information.
+
+<table>
+  <tr>
+    <td><img src="assets/readme/screenshots/memory/1.png" width="220" alt="Memory screen 1"></td>
+    <td><img src="assets/readme/screenshots/memory/2.png" width="220" alt="Memory screen 2"></td>
+    <td><img src="assets/readme/screenshots/memory/3.png" width="220" alt="Memory screen 3"></td>
+  </tr>
+  <tr>
+    <td><img src="assets/readme/screenshots/memory/4.png" width="220" alt="Memory screen 4"></td>
+    <td></td>
+    <td></td>
+  </tr>
+</table>
+
+### Me Tab
+
+The profile tab contains the user's identity, interests, preferred travel intensity, bio, and safety rating used for personalization and matching.
+
+<table>
+  <tr>
+    <td><img src="assets/readme/screenshots/me/1.png" width="220" alt="Profile screen 1"></td>
+    <td><img src="assets/readme/screenshots/me/2.png" width="220" alt="Profile screen 2"></td>
+    <td></td>
+  </tr>
+</table>
+
 ## Core Features
 
 - Google sign-in with Firebase Authentication
