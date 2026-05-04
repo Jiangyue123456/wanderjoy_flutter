@@ -45,16 +45,6 @@ flutter run \
   --dart-define=GOOGLE_MAPS_API_KEY=YOUR_GOOGLE_MAPS_API_KEY_FROM_EMAIL
 ```
 
-Optional model configuration can also be supplied:
-
-```bash
-flutter run \
-  --dart-define=OPENAI_API_KEY=YOUR_OPENAI_API_KEY_FROM_EMAIL \
-  --dart-define=GOOGLE_MAPS_API_KEY=YOUR_GOOGLE_MAPS_API_KEY_FROM_EMAIL \
-  --dart-define=OPENAI_MODEL=gpt-4.1-mini \
-  --dart-define=OPENAI_TRANSCRIBE_MODEL=gpt-4o-mini-transcribe
-```
-
 ### 4. Run on Android
 
 Start an Android emulator or connect an Android device, then run:
@@ -75,7 +65,7 @@ flutter run -d chrome \
 
 ### 6. Basic App Testing Flow
 
-1. Open the app and sign in with Google if required.
+1. Open the app and sign in with Google if required. If Google sign-in does not work in the local testing environment, a Preview Mode is provided so the demo can still be viewed.
 2. Go to Explore Mode and enter a travel request, such as an interest in art, food, culture, or nature.
 3. Review the AI-recommended places, adjust the list if needed, and generate a route.
 4. Start the trip navigation flow and save photos or written notes as memories.
