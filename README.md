@@ -8,6 +8,8 @@ The app currently runs as a Flutter-first project. Social Mode is implemented in
 
 Before building WanderJoy, I conducted desktop competitor research on four travel and exploration products: Komoot, Polarsteps, Atlas Obscura, and Couchsurfing. These references helped shape the app's direction around route planning, travel memory recording, unique place discovery, and social travel connection.
 
+WanderJoy differs by combining AI-personalized place discovery, live route planning, social companion matching, and memory capture into one continuous travel flow instead of treating them as separate features.
+
 ![Background research overview](assets/readme/background_research.png)
 
 ## Core Features
