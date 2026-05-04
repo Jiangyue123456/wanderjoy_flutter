@@ -30,7 +30,7 @@ The design process started with competitor research and user survey insights, th
 
 The user journey shows WanderJoy's three main flows: Explore Mode for personal AI-assisted exploration, Social Mode for safely meeting a compatible companion, and Memory for saving the route, photos, notes, locations, time points, and social companion context after a trip.
 
-![Storyboard user journey](assets/readme/storyboard_user_journey.png)
+![Storyboard user journey](assets/readme/storyboard_user_journey_v2.png)
 
 ## Core Features
 
