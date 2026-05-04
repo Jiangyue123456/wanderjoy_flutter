@@ -23,38 +23,38 @@ The app currently runs as a Flutter-first project. Social Mode is implemented in
 
 ```text
 wanderjoy_flutter/
-|-- lib/
-|   |-- main.dart
-|   |-- app/
-|   |   |-- wanderjoy_app.dart
-|   |   |-- app_shell.dart
-|   |   `-- auth/
-|   |       |-- auth_gate.dart
-|   |       |-- auth_service.dart
-|   |       `-- login_screen.dart
-|   |-- core/
-|   |   `-- theme/
-|   |       |-- app_colors.dart
-|   |       |-- app_spacing.dart
-|   |       `-- app_theme.dart
-|   |-- features/
-|   |   |-- explore/
-|   |   |-- social/
-|   |   |-- memory/
-|   |   `-- me/
-|   `-- shared/
-|       |-- data/
-|       |-- models/
-|       `-- widgets/
-|-- test/
-|-- android/
-|-- ios/
-|-- web/
-|-- linux/
-|-- macos/
-|-- windows/
-|-- pubspec.yaml
-`-- README.md
+|-- lib/                         # Main Flutter application source code.
+|   |-- main.dart                # App entry point; initializes Firebase and starts WanderJoyApp.
+|   |-- app/                     # Root app setup, shell navigation, and authentication flow.
+|   |   |-- wanderjoy_app.dart   # Creates MaterialApp, applies theme, and loads AuthGate.
+|   |   |-- app_shell.dart       # Main signed-in shell with Explore, Social, Memory, and Me tabs.
+|   |   `-- auth/                # Google/Firebase sign-in and preview-mode screens.
+|   |       |-- auth_gate.dart   # Routes users to LoginScreen or AppShell based on auth state.
+|   |       |-- auth_service.dart # Handles Google sign-in, Firebase auth, sign-out, and preview mode.
+|   |       `-- login_screen.dart # Login UI with Google sign-in and preview access.
+|   |-- core/                    # Shared app foundation code.
+|   |   `-- theme/               # Global visual design tokens and Material theme.
+|   |       |-- app_colors.dart   # Central color palette.
+|   |       |-- app_spacing.dart  # Shared spacing constants.
+|   |       `-- app_theme.dart    # Material 3 theme and text styles.
+|   |-- features/                # Main product features.
+|   |   |-- explore/             # AI place recommendation, route planning, maps, voice, and memories.
+|   |   |-- social/              # Local companion matching, request flow, NFC-style launch, shared Explore.
+|   |   |-- memory/              # Saved trip memories, route snapshots, companion history, photo views.
+|   |   `-- me/                  # Profile editing, Firestore profile storage, avatar selection, sign-out.
+|   `-- shared/                  # Reusable app-wide data, models, and UI widgets.
+|       |-- data/                # Mock users, places, and sample memories for the prototype.
+|       |-- models/              # Core data models such as Poi, UserProfile, and MemoryEntry.
+|       `-- widgets/             # Shared UI components like cards, buttons, header, and bottom nav.
+|-- test/                        # Flutter tests.
+|-- android/                     # Android platform project.
+|-- ios/                         # iOS platform project.
+|-- web/                         # Web platform project.
+|-- linux/                       # Linux desktop platform project.
+|-- macos/                       # macOS desktop platform project.
+|-- windows/                     # Windows desktop platform project.
+|-- pubspec.yaml                 # Flutter package metadata, dependencies, and asset configuration.
+`-- README.md                    # Project documentation.
 ```
 
 ## Application Flow
