@@ -33,7 +33,7 @@ cd wanderjoy_flutter
 flutter pub get
 ```
 
-### 3. Add API Keys Securely
+### 3. Add API Keys Securely and Run with API Keys
 
 The app uses OpenAI and Google Maps services. For security reasons, real API keys are not committed to GitHub. I will send the required assessment testing keys to the module teacher by email. Please check the email provided with this submission.
 
@@ -45,25 +45,7 @@ flutter run \
   --dart-define=GOOGLE_MAPS_API_KEY=YOUR_GOOGLE_MAPS_API_KEY_FROM_EMAIL
 ```
 
-### 4. Run on Android
-
-Start an Android emulator or connect an Android device, then run:
-
-```bash
-flutter run
-```
-
-If API-powered Explore features are being tested, use the `--dart-define` command shown above.
-
-### 5. Run on Web for Quick Testing
-
-```bash
-flutter run -d chrome \
-  --dart-define=OPENAI_API_KEY=YOUR_OPENAI_API_KEY_FROM_EMAIL \
-  --dart-define=GOOGLE_MAPS_API_KEY=YOUR_GOOGLE_MAPS_API_KEY_FROM_EMAIL
-```
-
-### 6. Basic App Testing Flow
+### 4. Basic App Testing Flow
 
 1. Open the app and sign in with Google if required. If Google sign-in does not work in the local testing environment, a Preview Mode is provided so the demo can still be viewed.
 2. Open the Me tab to view or edit profile information used for personalization and matching.
