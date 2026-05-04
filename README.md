@@ -4,6 +4,10 @@ WanderJoy is a Flutter mobile app for playful, AI-assisted city exploration. It 
 
 The app currently runs as a Flutter-first project. Social Mode is implemented in the frontend with local matching logic and mock data, so no separate backend is required for the main app flow.
 
+## Background Research
+
+Before building WanderJoy, I conducted desktop competitor research on four travel and exploration products: Komoot, Polarsteps, Atlas Obscura, and Couchsurfing. These references helped shape the app's direction around route planning, travel memory recording, unique place discovery, and social travel connection.
+
 ## Core Features
 
 - Google sign-in with Firebase Authentication
