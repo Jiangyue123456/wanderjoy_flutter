@@ -22,6 +22,16 @@ Based on the survey insights, I created Lily as a target persona to represent ne
 
 ![User persona Lily](assets/readme/user_persona_lily.png)
 
+## Design Process
+
+The design process started with competitor research and user survey insights, then translated these findings into a target persona, design implications, and key user flows. WanderJoy was shaped around two main scenarios: AI-assisted personal exploration and safer social exploration. The prototype turns these needs into practical screens for profile setup, AI chat, place recommendation, route confirmation, companion matching, NFC meeting confirmation, shared exploration, and memory saving.
+
+## Storyboard / User Journey
+
+The user journey shows two connected paths in WanderJoy: Explore Mode for personal AI-assisted exploration and Social Mode for meeting a compatible companion before entering a shared Explore flow.
+
+![Storyboard user journey](assets/readme/storyboard_user_journey.png)
+
 ## Core Features
 
 - Google sign-in with Firebase Authentication
