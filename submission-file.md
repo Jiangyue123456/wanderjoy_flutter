@@ -75,27 +75,27 @@ flutter run -d chrome \
 
 ## Bibliography
 
-1. Flutter. (2026). *Flutter documentation*. Available at: https://docs.flutter.dev/ (Accessed: 5 May 2026).
+1. Flutter. (2026). *Flutter documentation*. Available at: https://docs.flutter.dev/ (Accessed: 4 May 2026).
 
-2. Firebase. (2026). *Firebase documentation*. Available at: https://firebase.google.com/docs (Accessed: 5 May 2026).
+2. Firebase. (2026). *Firebase documentation*. Available at: https://firebase.google.com/docs (Accessed: 4 May 2026).
 
-3. Google Maps Platform. (2026). *Google Maps Platform documentation*. Available at: https://developers.google.com/maps/documentation (Accessed: 5 May 2026).
+3. Google Maps Platform. (2026). *Google Maps Platform documentation*. Available at: https://developers.google.com/maps/documentation (Accessed: 4 May 2026).
 
-4. OpenAI. (2026). *OpenAI API documentation*. Available at: https://platform.openai.com/docs (Accessed: 5 May 2026).
+4. OpenAI. (2026). *OpenAI API documentation*. Available at: https://platform.openai.com/docs (Accessed: 4 May 2026).
 
-5. Model Context Protocol. (2026). *Model Context Protocol documentation*. Available at: https://modelcontextprotocol.io/ (Accessed: 5 May 2026).
+5. Model Context Protocol. (2026). *Model Context Protocol documentation*. Available at: https://modelcontextprotocol.io/ (Accessed: 4 May 2026).
 
-6. Fly.io. (2026). *Fly.io documentation*. Available at: https://fly.io/docs/ (Accessed: 5 May 2026).
+6. Fly.io. (2026). *Fly.io documentation*. Available at: https://fly.io/docs/ (Accessed: 4 May 2026).
 
-7. pub.dev. (2026). *Flutter package repository*. Available at: https://pub.dev/ (Accessed: 5 May 2026).
+7. pub.dev. (2026). *Flutter package repository*. Available at: https://pub.dev/ (Accessed: 4 May 2026).
 
-8. Komoot. (2026). *Komoot*. Available at: https://www.komoot.com/ (Accessed: 5 May 2026).
+8. Komoot. (2026). *Komoot*. Available at: https://www.komoot.com/ (Accessed: 4 May 2026).
 
-9. Polarsteps. (2026). *Polarsteps*. Available at: https://www.polarsteps.com/ (Accessed: 5 May 2026).
+9. Polarsteps. (2026). *Polarsteps*. Available at: https://www.polarsteps.com/ (Accessed: 4 May 2026).
 
-10. Atlas Obscura. (2026). *Atlas Obscura*. Available at: https://www.atlasobscura.com/ (Accessed: 5 May 2026).
+10. Atlas Obscura. (2026). *Atlas Obscura*. Available at: https://www.atlasobscura.com/ (Accessed: 4 May 2026).
 
-11. Couchsurfing. (2026). *Couchsurfing*. Available at: https://www.couchsurfing.com/ (Accessed: 5 May 2026).
+11. Couchsurfing. (2026). *Couchsurfing*. Available at: https://www.couchsurfing.com/ (Accessed: 4 May 2026).
 
 ## Declaration of Authorship
 
@@ -103,4 +103,4 @@ I, Jiangyue Pei, confirm that the work presented in this assessment is my own. W
 
 Digitally signed: Jiangyue Pei
 
-Assessment date: 5 May 2026
+Assessment date: 4 May 2026
