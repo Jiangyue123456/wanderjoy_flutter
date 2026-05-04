@@ -10,6 +10,12 @@ WanderJoy differs by combining AI-personalized place discovery, live route plann
 
 ![Background research overview](assets/readme/background_research.png)
 
+## User Research
+
+I also conducted a Wenjuanxing questionnaire survey with 100 valid responses to understand users' travel planning habits, pain points, social travel needs, and interest in adaptive route recommendations. The results showed strong demand for personalized place discovery, route planning based on physical state, travel memory recording, and safer companion matching.
+
+![User research summary](assets/readme/user_research_summary.png)
+
 ## Core Features
 
 - Google sign-in with Firebase Authentication
