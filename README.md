@@ -93,26 +93,39 @@ wanderjoy_flutter/
 
 ## Technical Implementation
 
-### 1. Authentication
+### 1. Technology Stack
+
+- Frontend framework: Flutter and Dart.
+- AI APIs: OpenAI Responses API for place recommendation and route planning, plus OpenAI Audio Transcription API for voice input.
+- Agent workflow: a custom Explore Agent built with developer prompts, structured JSON schema outputs, retry prompts, and Google Maps MCP tool access.
+- MCP integration: Google Maps MCP server connected through OpenAI tool calling and deployed at `https://wanderjoyflutter.fly.dev/mcp` on Fly.io.
+- Google APIs: Google Places Details API, Google Place Photos API, Google Directions API, Google Maps JavaScript map inside WebView, Google Maps launch URLs, and Google sign-in.
+- Firebase: Firebase Authentication and Cloud Firestore.
+- Device features: location permission/current location, audio recording, image picking, local file storage, and external map launching.
+
+### 2. Authentication
 
 - Main folder: `lib/app/auth/`
 - Google sign-in is handled through `google_sign_in`.
 - Firebase Authentication stores the signed-in user session.
-- Firestore is used later for saving and loading the user's profile.
+- Firestore stores profile data used by Explore Mode and Social Mode.
 
-### 2. Explore Mode
+### 3. Explore Mode
 
 - Main folder: `lib/features/explore/`
 - Main flow: `input -> customize -> route -> trip -> summary`
-- Users can type a request or record voice input.
-- Voice input is captured with `record` and transcribed through OpenAI audio transcription.
-- `ExploreAgentService` sends the user's request, interests, bio, travel intensity, and current context to the OpenAI Responses API.
-- The AI returns real place recommendations, which are converted into `Poi` models.
+- Users can type a request or record voice input with `record`.
+- `VoiceTranscriptionService` sends recorded audio to OpenAI Audio Transcription and places the transcript back into the chat input.
+- `ExploreAgentService` sends the user's request, interests, bio, travel intensity, current location, and optional social trip context to the OpenAI Responses API.
+- The Explore Agent uses developer/system-style prompts and strict JSON schemas so OpenAI returns structured place and route data instead of free text.
+- Real place discovery uses the Fly.io Google Maps MCP server through OpenAI tool calling.
+- Google Places Details and Photos enrich each POI with ratings, opening status, photos, reviews, and Google Maps links.
 - Users can keep, remove, search, or manually add places before confirming the route.
-- Route generation uses Google Directions API first, then falls back to AI route planning or local estimated routing.
-- Maps and navigation use Google Maps, location updates, distance estimates, and Google Maps launch links.
+- Route generation uses Google Directions API first, then falls back to AI route planning through MCP or local estimated routing.
+- Route display uses a Google Maps WebView when an API key is available, with a custom estimated map fallback.
+- Navigation uses `geolocator` for live location, distance estimates, route cues, and Google Maps launch links.
 
-### 3. Social Mode
+### 4. Social Mode
 
 - Main folder: `lib/features/social/`
 - Main flow: `nearby -> profile -> request -> setup -> nfc -> sharedExplore`
@@ -121,29 +134,30 @@ wanderjoy_flutter/
 - After a match, users can send a join request, choose a meeting time, and confirm the offline meeting with an NFC-style interaction.
 - The shared trip then reuses Explore Mode by passing an `ExploreTripContext` into `ExploreScreen`.
 
-### 4. Memory Mode
+### 5. Memory Mode
 
 - Main folder: `lib/features/memory/`
 - Route memories are stored through `MemoryRepository`.
 - Each memory can include photos, notes, route points, visited stops, timestamps, and companion context.
 - `ValueNotifier<List<MemoryEntry>>` updates the Memory screen immediately when a new memory is saved.
-- Memory Mode can display both personal Explore trips and Social trips with companion information.
+- Saved route maps are rebuilt with Google Maps inside WebView, including route lines, numbered stops, and photo pins.
+- Memory Mode displays both personal Explore trips and Social trips with companion information.
 
-### 5. Me / Profile Mode
+### 6. Me / Profile Mode
 
 - Main folder: `lib/features/me/`
 - Users can edit avatar, display name, age, interests, preferred travel intensity, safety rating, and bio.
 - Profile data is saved in Firestore under `profiles/{uid}`.
 - Profile information is reused by Explore Mode for personalized recommendations and by Social Mode for matching.
 
-### 6. Shared Data Models
+### 7. Shared Data Models
 
 - Main file: `lib/shared/models/app_models.dart`
 - Key models: `UserProfile`, `Poi`, `ExploreTripContext`, `MemoryEntry`, and `MemoryRouteSnapshot`
 
 These models connect the app's main features: Explore creates routes, Social passes companion context into Explore, Explore saves route memories, and Memory displays the saved trips.
 
-### 7. External Services and Configuration
+### 8. External Services and Configuration
 
 Full functionality uses these configuration values:
 
@@ -154,9 +168,9 @@ OPENAI_TRANSCRIBE_MODEL
 GOOGLE_MAPS_API_KEY
 ```
 
-Firebase must also be configured for Google sign-in, authentication state, Firestore profile storage, and saved user data.
+Firebase must also be configured for Google sign-in, authentication state, Firestore profile storage, and saved user data. The OpenAI requests use the configured MCP server URL to access Google Maps tools through the Fly.io server.
 
-### 8. Main Dependencies
+### 9. Main Dependencies
 
 - Firebase: `firebase_core`, `firebase_auth`, `cloud_firestore`
 - Authentication: `google_sign_in`
