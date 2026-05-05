@@ -6,6 +6,8 @@ Flutter Application Name - WanderJoy
 
 GitHub Repository - https://github.com/Jiangyue123456/wanderjoy_flutter
 
+Demo Video - https://raw.githubusercontent.com/Jiangyue123456/wanderjoy_flutter/main/assets/readme/demo_video.mp4
+
 ## Introduction to Application
 
 WanderJoy is a Flutter mobile application designed for playful, AI-assisted city exploration. The app helps users describe what kind of experience they want, receive personalized place recommendations, build a route, navigate between points of interest, meet compatible travel companions, and save memories from the trip.
